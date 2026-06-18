@@ -101,6 +101,12 @@ function publicUrl() {
   return value.replace(/\/+$/, "");
 }
 
+function webhookSecret(value, fallbackSeed) {
+  const raw = String(value || "");
+  if (/^[A-Za-z0-9_-]{1,256}$/.test(raw)) return raw;
+  return crypto.createHash("sha256").update(raw || fallbackSeed || "dev").digest("hex");
+}
+
 function loadConfig() {
   loadEnvFile();
 
@@ -117,9 +123,7 @@ function loadConfig() {
     dryRun: envBool("DRY_RUN", false),
     telegramToken: process.env.TELEGRAM_BOT_TOKEN || "",
     telegramFallbackChatId: process.env.TELEGRAM_CHAT_ID || "",
-    telegramWebhookSecret:
-      process.env.TELEGRAM_WEBHOOK_SECRET ||
-      crypto.createHash("sha256").update(process.env.TELEGRAM_BOT_TOKEN || "dev").digest("hex").slice(0, 32),
+    telegramWebhookSecret: webhookSecret(process.env.TELEGRAM_WEBHOOK_SECRET, process.env.TELEGRAM_BOT_TOKEN),
     publicUrl: publicUrl(),
     adminChatIds: new Set(envList("ADMIN_CHAT_IDS", [])),
     pollTelegramWhenNoWebhook: envBool("TELEGRAM_LONG_POLL_FALLBACK", true),
