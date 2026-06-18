@@ -21,6 +21,12 @@ services:
         sync: false
       - key: TELEGRAM_WEBHOOK_SECRET
         generateValue: true
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-5-mini
+      - key: AI_FILTERS_ENABLED
+        value: "true"
       - key: MAX_PRICE_USD
         value: "120000"
       - key: MIN_QUALITY_SCORE

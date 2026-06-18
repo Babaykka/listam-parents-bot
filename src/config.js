@@ -128,6 +128,9 @@ function loadConfig() {
     publicUrl: publicUrl(),
     adminChatIds: new Set(envList("ADMIN_CHAT_IDS", [])),
     pollTelegramWhenNoWebhook: envBool("TELEGRAM_LONG_POLL_FALLBACK", true),
+    openaiApiKey: process.env.OPENAI_API_KEY || "",
+    openaiModel: process.env.OPENAI_MODEL || "gpt-5-mini",
+    aiFiltersEnabled: envBool("AI_FILTERS_ENABLED", true),
 
     maxPriceUsd: envNumber("MAX_PRICE_USD", 120000),
     minPriceUsd: envNumber("MIN_PRICE_USD", 0),

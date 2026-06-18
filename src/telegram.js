@@ -1,4 +1,5 @@
 const { activeSubscribers, deactivateSubscriber, defaultFilters, normalizeFilters, upsertSubscriber } = require("./state");
+const { parseFilterRequest } = require("./aiFilters");
 const { clamp, escapeHtml, normalizeText } = require("./utils");
 
 function apiUrl(config, method) {
@@ -274,6 +275,9 @@ function helpText(config, state) {
     `/latest - последние варианты`,
     `/top - лучшие по качеству`,
     `/filters - показать фильтры`,
+    `/ai 2-3 комнаты до 110к - настроить текстом`,
+    `/apply - применить AI-настройку`,
+    `/cancel - отменить AI-настройку`,
     `/setup - быстрые пресеты`,
     "",
     `<b>Фильтры</b>`,
@@ -299,6 +303,9 @@ function helpText(config, state) {
 function setupText() {
   return [
     `<b>Быстрая настройка</b>`,
+    `Можно написать обычным текстом: "2-3 комнаты до 110к, Аван или Нор Норк, не выше 5 этажа, без агентств".`,
+    "",
+    `<b>Пресеты</b>`,
     `/preset ready - больше готовых к жизни вариантов`,
     `/preset value - искать выгодную цену за м²`,
     `/preset apartment - только квартиры`,
@@ -332,6 +339,139 @@ function applyPreset(config, subscriber, name) {
   return filters;
 }
 
+function clearFilterFields(config, filters, fields) {
+  if (fields.includes("all")) return defaultFilters(config);
+
+  const next = { ...filters };
+  for (const field of fields) {
+    if (field === "price") {
+      next.minPriceUsd = config.minPriceUsd;
+      next.maxPriceUsd = config.maxPriceUsd;
+    } else if (field === "rooms") {
+      next.minRooms = null;
+      next.maxRooms = null;
+    } else if (field === "area") {
+      next.minAreaSqm = null;
+      next.maxAreaSqm = null;
+    } else if (field === "sqm") {
+      next.maxPricePerSqm = null;
+    } else if (field === "floor") {
+      next.minFloor = null;
+      next.maxFloor = null;
+    } else if (field === "distance") {
+      next.maxDistanceMinutes = null;
+    } else if (field === "quality") {
+      next.minQualityScore = config.minQualityScore;
+    } else if (field === "locations") {
+      next.locations = [];
+    } else if (field === "categories") {
+      next.categories = config.categories.map((category) => category.key);
+    } else if (field === "elevator") {
+      next.elevator = "any";
+    } else if (field === "condition") {
+      next.condition = "any";
+    } else if (field === "keywords") {
+      next.keywords = [];
+    } else if (field === "excludeKeywords") {
+      next.excludeKeywords = [];
+    }
+  }
+  return next;
+}
+
+function orderedRange(min, max) {
+  if (min && max && min > max) return { min: max, max: min };
+  return { min, max };
+}
+
+function applyAiPatch(config, currentFilters, result) {
+  let next = clearFilterFields(config, normalizeFilters(config, currentFilters), result.clear || []);
+  if (result.action === "reset") return defaultFilters(config);
+
+  const patch = result.patch || {};
+  for (const key of ["minPriceUsd", "maxPriceUsd", "maxPricePerSqm", "maxDistanceMinutes", "minQualityScore"]) {
+    if (patch[key] !== null && patch[key] !== undefined) next[key] = patch[key];
+  }
+
+  const rooms = orderedRange(patch.minRooms, patch.maxRooms);
+  if (rooms.min !== null && rooms.min !== undefined) next.minRooms = rooms.min;
+  if (rooms.max !== null && rooms.max !== undefined) next.maxRooms = rooms.max;
+
+  const area = orderedRange(patch.minAreaSqm, patch.maxAreaSqm);
+  if (area.min !== null && area.min !== undefined) next.minAreaSqm = area.min;
+  if (area.max !== null && area.max !== undefined) next.maxAreaSqm = area.max;
+
+  const floor = orderedRange(patch.minFloor, patch.maxFloor);
+  if (floor.min !== null && floor.min !== undefined) next.minFloor = floor.min;
+  if (floor.max !== null && floor.max !== undefined) next.maxFloor = floor.max;
+
+  if (Array.isArray(patch.locations)) next.locations = patch.locations;
+  if (Array.isArray(patch.categories) && patch.categories.length) next.categories = patch.categories;
+  if (["yes", "no", "any"].includes(patch.elevator)) next.elevator = patch.elevator;
+  if (["ready", "needs_work", "any"].includes(patch.condition)) next.condition = patch.condition;
+  if (Array.isArray(patch.keywords)) next.keywords = patch.keywords;
+  if (Array.isArray(patch.excludeKeywords)) next.excludeKeywords = patch.excludeKeywords;
+
+  return normalizeFilters(config, next);
+}
+
+function aiSetupText(config) {
+  return [
+    `<b>AI-настройка фильтров</b>`,
+    config.openaiApiKey ? "Пиши обычным текстом, а я превращу это в фильтры и попрошу подтвердить." : "AI пока не подключен: нужен OPENAI_API_KEY.",
+    "",
+    `<b>Примеры</b>`,
+    `2-3 комнаты до 110к, Аван или Нор Норк, не выше 5 этажа`,
+    `только квартиры с ремонтом, 50-90 м², до 1600 за м²`,
+    `дома до 120к, максимум 30 минут до центра, без агентств`,
+    "",
+    `После разбора нажми /apply или /cancel.`,
+  ].join("\n");
+}
+
+async function proposeAiFilters(config, subscriber, chatId, text) {
+  if (!config.aiFiltersEnabled || !config.openaiApiKey) {
+    await sendMessage(config, chatId, aiSetupText(config));
+    return true;
+  }
+
+  await sendMessage(config, chatId, "Сейчас разберу и покажу, какие фильтры получаются.");
+  try {
+    const result = await parseFilterRequest(config, subscriber.filters, text);
+    if (result.action === "help" || result.action === "unclear" || result.confidence < 0.35) {
+      await sendMessage(config, chatId, [`Не уверен, что понял запрос достаточно точно.`, result.summary ? `Похоже: ${escapeHtml(result.summary)}` : null, "", aiSetupText(config)].filter(Boolean).join("\n"));
+      return true;
+    }
+
+    const proposedFilters = applyAiPatch(config, subscriber.filters, result);
+    subscriber.pendingAiFilters = {
+      sourceText: text,
+      summary: result.summary,
+      filters: proposedFilters,
+      createdAt: new Date().toISOString(),
+    };
+
+    await sendMessage(
+      config,
+      chatId,
+      [
+        `<b>Я понял так</b>`,
+        escapeHtml(result.summary || "Обновить фильтры по твоему описанию."),
+        "",
+        filtersText(config, proposedFilters),
+        "",
+        `Применить: /apply`,
+        `Отменить: /cancel`,
+      ].join("\n")
+    );
+    return true;
+  } catch (error) {
+    console.error(`[openai] filter parse failed: ${error.message}`);
+    await sendMessage(config, chatId, `AI-настройка сейчас не сработала: ${escapeHtml(error.message)}\nМожно настроить вручную через /setup.`);
+    return true;
+  }
+}
+
 async function configureTelegram(config, state) {
   if (!config.telegramToken && !config.dryRun) return state;
 
@@ -346,11 +486,11 @@ async function configureTelegram(config, state) {
     name: "List.am Real Estate Bot",
   });
   await telegramApi(config, "setMyShortDescription", {
-    short_description: "Новые квартиры и дома с удобными фильтрами.",
+    short_description: "Новые квартиры и дома, фильтры можно настроить обычным текстом.",
   });
   await telegramApi(config, "setMyDescription", {
     description:
-      "Монитор новых объявлений List.am по недвижимости. Отправляет квартиры и дома по твоим фильтрам: цена, район, комнаты, площадь, этаж, лифт, состояние и цена за м².",
+      "Монитор новых объявлений List.am по недвижимости. Напиши, что ищешь, обычным текстом: бот превратит это в фильтры по цене, району, комнатам, площади, этажу, лифту, состоянию и цене за м².",
   });
   await telegramApi(config, "setMyCommands", {
     commands: [
@@ -358,6 +498,9 @@ async function configureTelegram(config, state) {
       { command: "latest", description: "Последние варианты" },
       { command: "top", description: "Лучшие по качеству" },
       { command: "filters", description: "Мои фильтры" },
+      { command: "ai", description: "Настроить фильтры текстом" },
+      { command: "apply", description: "Применить AI-настройку" },
+      { command: "cancel", description: "Отменить AI-настройку" },
       { command: "setup", description: "Быстрая настройка" },
       { command: "price", description: "Диапазон цены" },
       { command: "budget", description: "Бюджет до суммы" },
@@ -442,6 +585,36 @@ async function handleCommand(config, state, message, hooks = {}) {
 
   if (command === "/filters") {
     await sendMessage(config, chat.id, filtersText(config, subscriber.filters));
+    return true;
+  }
+
+  if (command === "/ai") {
+    const prompt = normalizeText(args.join(" "));
+    if (!prompt) {
+      await sendMessage(config, chat.id, aiSetupText(config));
+      return true;
+    }
+    return proposeAiFilters(config, subscriber, chat.id, prompt);
+  }
+
+  if (command === "/apply") {
+    if (!subscriber.pendingAiFilters?.filters) {
+      await sendMessage(config, chat.id, "Нет AI-настройки для применения. Напиши запрос обычным текстом или используй /ai.");
+      return true;
+    }
+    subscriber.filters = normalizeFilters(config, subscriber.pendingAiFilters.filters);
+    delete subscriber.pendingAiFilters;
+    await sendMessage(config, chat.id, `Готово, фильтры применены.\n\n${filtersText(config, subscriber.filters)}`);
+    return true;
+  }
+
+  if (command === "/cancel") {
+    if (subscriber.pendingAiFilters) {
+      delete subscriber.pendingAiFilters;
+      await sendMessage(config, chat.id, "AI-настройка отменена. Текущие фильтры не менял.");
+    } else {
+      await sendMessage(config, chat.id, "Нечего отменять. Текущие фильтры не менял.");
+    }
     return true;
   }
 
@@ -627,6 +800,10 @@ async function handleCommand(config, state, message, hooks = {}) {
   if (command.startsWith("/")) {
     await sendMessage(config, chat.id, "Не понял команду. Нажми /help.");
     return true;
+  }
+
+  if (chat.type === "private") {
+    return proposeAiFilters(config, subscriber, chat.id, text);
   }
 
   return false;
