@@ -1,0 +1,41 @@
+services:
+  - type: web
+    name: listam-parents-bot
+    runtime: docker
+    plan: starter
+    region: frankfurt
+    autoDeploy: true
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    disk:
+      name: listam-parents-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATA_DIR
+        value: /var/data
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_WEBHOOK_SECRET
+        generateValue: true
+      - key: MAX_PRICE_USD
+        value: "120000"
+      - key: LISTAM_CATEGORY_IDS
+        value: "60,62"
+      - key: LISTAM_PAGES_PER_CATEGORY
+        value: "3"
+      - key: LISTAM_PAGE_WAIT_SECONDS
+        value: "35"
+      - key: POLL_INTERVAL_MINUTES
+        value: "20"
+      - key: TELEGRAM_BATCH_SIZE
+        value: "6"
+      - key: SEND_INITIAL
+        value: "false"
+      - key: SCAN_ON_START
+        value: "true"
+      - key: TELEGRAM_LONG_POLL_FALLBACK
+        value: "true"

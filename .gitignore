@@ -1,0 +1,7 @@
+.env
+data/
+research/playwright-profile/
+node_modules/
+npm-debug.log*
+listam-playwright-check.png
+*.log

@@ -1,0 +1,17 @@
+{
+  "name": "listam-parents-bot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Telegram bot that monitors List.am real estate listings for parent-friendly homes.",
+  "main": "src/app.js",
+  "scripts": {
+    "start": "node src/app.js",
+    "check": "node --check src/*.js scripts/*.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "playwright": "1.60.0"
+  }
+}

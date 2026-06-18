@@ -1,0 +1,7 @@
+.env
+.git
+data
+node_modules
+research/playwright-profile
+*.log
+listam-playwright-check.png
