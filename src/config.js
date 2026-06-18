@@ -135,6 +135,7 @@ function loadConfig() {
     scanIntervalMinutes: envNumber("POLL_INTERVAL_MINUTES", 20),
     scanPagesPerCategory: envNumber("LISTAM_PAGES_PER_CATEGORY", 3),
     scanPageWaitSeconds: envNumber("LISTAM_PAGE_WAIT_SECONDS", 35),
+    challengeWaitSeconds: envNumber("LISTAM_CHALLENGE_MAX_SECONDS", 10),
     navigationTimeoutMs: envNumber("NAVIGATION_TIMEOUT_MS", 45000),
     delayBetweenPagesMs: envNumber("DELAY_BETWEEN_PAGES_MS", 2500),
     headless: !envBool("LISTAM_SHOW_BROWSER", false),

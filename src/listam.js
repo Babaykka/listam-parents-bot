@@ -175,11 +175,16 @@ function parseItem(raw, category, config) {
 
 async function waitForListings(page, config) {
   const attempts = Math.ceil(config.scanPageWaitSeconds / 1.2);
+  let firstChallengeAt = null;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     await sleep(1200);
     const title = await page.title().catch(() => "");
     const text = await page.locator("body").innerText().catch(() => "");
-    if (/Just a moment/i.test(title)) continue;
+    if (/Just a moment/i.test(title)) {
+      firstChallengeAt ||= Date.now();
+      if (Date.now() - firstChallengeAt >= config.challengeWaitSeconds * 1000) return false;
+      continue;
+    }
     if (PAGE_MARKERS.some((marker) => text.includes(marker))) return true;
   }
   return false;
@@ -203,41 +208,44 @@ async function scanListAm(config, logger = console) {
       "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
   });
 
-  const page = await context.newPage();
   const listings = [];
   const skipped = [];
 
-  for (const category of config.categories) {
-    for (let pageNo = 1; pageNo <= config.scanPagesPerCategory; pageNo += 1) {
-      const pagePart = pageNo === 1 ? "" : `/${pageNo}`;
-      const url = `https://www.list.am/en/category/${category.id}${pagePart}?price2=${config.maxPriceUsd}&crc=1`;
-      logger.log(`[scan] ${category.label} page ${pageNo}`);
+  try {
+    const page = await context.newPage();
 
-      try {
-        await page.goto(url, { waitUntil: "domcontentloaded", timeout: config.navigationTimeoutMs });
-        const ok = await waitForListings(page, config);
-        if (!ok) {
-          const title = await page.title().catch(() => "unknown title");
-          skipped.push({ category: category.key, pageNo, title });
-          logger.warn(`[scan] skipped ${category.label} page ${pageNo}: ${title}`);
-          continue;
+    for (const category of config.categories) {
+      for (let pageNo = 1; pageNo <= config.scanPagesPerCategory; pageNo += 1) {
+        const pagePart = pageNo === 1 ? "" : `/${pageNo}`;
+        const url = `https://www.list.am/en/category/${category.id}${pagePart}?price2=${config.maxPriceUsd}&crc=1`;
+        logger.log(`[scan] ${category.label} page ${pageNo}`);
+
+        try {
+          await page.goto(url, { waitUntil: "domcontentloaded", timeout: config.navigationTimeoutMs });
+          const ok = await waitForListings(page, config);
+          if (!ok) {
+            const title = await page.title().catch(() => "unknown title");
+            skipped.push({ category: category.key, pageNo, title });
+            logger.warn(`[scan] skipped ${category.label} page ${pageNo}: ${title}`);
+            continue;
+          }
+
+          const rawItems = await extractPageItems(page);
+          for (const raw of rawItems) {
+            const item = parseItem(raw, category, config);
+            if (item) listings.push(item);
+          }
+        } catch (error) {
+          skipped.push({ category: category.key, pageNo, error: error.message });
+          logger.warn(`[scan] error ${category.label} page ${pageNo}: ${error.message}`);
         }
 
-        const rawItems = await extractPageItems(page);
-        for (const raw of rawItems) {
-          const item = parseItem(raw, category, config);
-          if (item) listings.push(item);
-        }
-      } catch (error) {
-        skipped.push({ category: category.key, pageNo, error: error.message });
-        logger.warn(`[scan] error ${category.label} page ${pageNo}: ${error.message}`);
+        await sleep(config.delayBetweenPagesMs);
       }
-
-      await sleep(config.delayBetweenPagesMs);
     }
+  } finally {
+    await context.close().catch((error) => logger.warn(`[scan] browser close failed: ${error.message}`));
   }
-
-  await context.close();
 
   const seen = new Set();
   const uniqueListings = listings.filter((item) => {

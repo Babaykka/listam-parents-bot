@@ -26,9 +26,11 @@ services:
       - key: LISTAM_CATEGORY_IDS
         value: "60,62"
       - key: LISTAM_PAGES_PER_CATEGORY
-        value: "3"
+        value: "1"
       - key: LISTAM_PAGE_WAIT_SECONDS
-        value: "35"
+        value: "15"
+      - key: LISTAM_CHALLENGE_MAX_SECONDS
+        value: "8"
       - key: POLL_INTERVAL_MINUTES
         value: "20"
       - key: TELEGRAM_BATCH_SIZE
@@ -36,6 +38,6 @@ services:
       - key: SEND_INITIAL
         value: "false"
       - key: SCAN_ON_START
-        value: "true"
+        value: "false"
       - key: TELEGRAM_LONG_POLL_FALLBACK
         value: "true"
