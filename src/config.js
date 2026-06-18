@@ -115,6 +115,7 @@ function loadConfig() {
     .filter(Boolean);
 
   const dataDir = process.env.DATA_DIR || path.join(ROOT_DIR, "data");
+  const minQualityScore = envNumber("MIN_QUALITY_SCORE", envNumber("MIN_PARENT_SCORE", 0));
 
   return {
     rootDir: ROOT_DIR,
@@ -130,7 +131,8 @@ function loadConfig() {
 
     maxPriceUsd: envNumber("MAX_PRICE_USD", 120000),
     minPriceUsd: envNumber("MIN_PRICE_USD", 0),
-    minParentScore: envNumber("MIN_PARENT_SCORE", 0),
+    minQualityScore,
+    minParentScore: minQualityScore,
     scanOnStart: envBool("SCAN_ON_START", true),
     scanIntervalMinutes: envNumber("POLL_INTERVAL_MINUTES", 20),
     scanPagesPerCategory: envNumber("LISTAM_PAGES_PER_CATEGORY", 3),

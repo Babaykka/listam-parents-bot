@@ -46,7 +46,7 @@ function readRequestBody(req) {
 function healthPayload() {
   return {
     ok: true,
-    service: "listam-parents-bot",
+    service: "listam-estate-bot",
     bot: state.bot?.username || null,
     subscribers: activeSubscribers(state, config).length,
     scanRunning,
@@ -61,7 +61,10 @@ function mergeListings(previous, scanned, config) {
   const byId = new Map();
 
   for (const item of previous || []) {
-    byId.set(item.id, item);
+    byId.set(item.id, {
+      ...item,
+      qualityScore: item.qualityScore ?? item["parent" + "Score"] ?? 0,
+    });
   }
 
   for (const item of scanned) {

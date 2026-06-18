@@ -219,7 +219,7 @@ function cleanTitle(text, price) {
   return title;
 }
 
-function scoreForParents(item) {
+function qualityScore(item) {
   let score = 5;
   const text = item.rawText.toLowerCase();
 
@@ -270,7 +270,7 @@ function parseItem(raw, config) {
     minutesToCenter: location ? MINUTES_TO_CENTER[location] : null,
     rawText: text,
   };
-  item.parentScore = scoreForParents(item);
+  item.qualityScore = qualityScore(item);
   return item;
 }
 
@@ -358,7 +358,7 @@ async function scanListAm(config) {
       seen.add(item.id);
       return true;
     })
-    .sort((a, b) => b.parentScore - a.parentScore || a.priceUsd - b.priceUsd);
+    .sort((a, b) => b.qualityScore - a.qualityScore || a.priceUsd - b.priceUsd);
 }
 
 function listingLine(item) {
@@ -368,7 +368,7 @@ function listingLine(item) {
     item.rooms ? `${item.rooms}к` : null,
     item.floor?.label ? `${item.floor.label} эт.` : null,
     item.pricePerSqm ? `$${item.pricePerSqm}/м²` : null,
-    `родит. ${item.parentScore}/10`,
+    `качество ${item.qualityScore}/10`,
   ].filter(Boolean);
 
   return [

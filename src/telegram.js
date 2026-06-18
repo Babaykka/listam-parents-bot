@@ -1,4 +1,4 @@
-const { activeSubscribers, deactivateSubscriber, defaultFilters, upsertSubscriber } = require("./state");
+const { activeSubscribers, deactivateSubscriber, defaultFilters, normalizeFilters, upsertSubscriber } = require("./state");
 const { clamp, escapeHtml, normalizeText } = require("./utils");
 
 function apiUrl(config, method) {
@@ -41,14 +41,46 @@ async function sendMessage(config, chatId, text, options = {}) {
   });
 }
 
+function money(value) {
+  return `$${Number(value || 0).toLocaleString("en-US")}`;
+}
+
+function scoreOf(item) {
+  return Number(item.qualityScore ?? item["parent" + "Score"] ?? 0);
+}
+
+function conditionLabel(value) {
+  return (
+    {
+      ready: "хорошее состояние",
+      partial: "частичный ремонт",
+      needs_work: "нужен ремонт",
+      unknown: "",
+      any: "любое",
+    }[value] || ""
+  );
+}
+
+function categoryLabel(value) {
+  return (
+    {
+      apartment: "квартиры",
+      house: "дома",
+    }[value] || value
+  );
+}
+
 function listingLine(item) {
   const details = [
     item.location || "локация не распознана",
+    item.minutesToCenter !== null && item.minutesToCenter !== undefined ? `${item.minutesToCenter} мин до центра` : null,
     item.areaSqm ? `${item.areaSqm} м²` : null,
     item.rooms ? `${item.rooms}к` : null,
     item.floor?.label ? `${item.floor.label} эт.` : null,
-    item.pricePerSqm ? `$${item.pricePerSqm}/м²` : null,
-    `родит. ${item.parentScore}/10`,
+    item.elevator === true ? "лифт" : item.elevator === false && item.floor?.current >= 3 ? "без лифта" : null,
+    conditionLabel(item.condition),
+    item.pricePerSqm ? `${money(item.pricePerSqm)}/м²` : null,
+    `качество ${scoreOf(item)}/10`,
   ].filter(Boolean);
 
   return [
@@ -71,32 +103,73 @@ function subscriberName(subscriber) {
   return subscriber.title || subscriber.username || [subscriber.firstName, subscriber.lastName].filter(Boolean).join(" ") || subscriber.id;
 }
 
-function filtersText(config, filters) {
-  const categories = filters.categories?.length ? filters.categories.join(", ") : "apartment, house";
+function rangeText(min, max, unit = "", anyText = "любой") {
+  if (min && max) return min === max ? `${min}${unit}` : `${min}-${max}${unit}`;
+  if (min) return `от ${min}${unit}`;
+  if (max) return `до ${max}${unit}`;
+  return anyText;
+}
+
+function filtersText(config, rawFilters) {
+  const filters = normalizeFilters(config, rawFilters);
+  const categories = filters.categories?.length ? filters.categories.map(categoryLabel).join(", ") : "квартиры, дома";
   const locations = filters.locations?.length ? filters.locations.join(", ") : "все разрешенные районы";
+  const elevator = { yes: "только с лифтом", no: "только без лифта", any: "любой" }[filters.elevator] || "любой";
+  const keywords = filters.keywords.length ? filters.keywords.join(", ") : "нет";
+  const excludeKeywords = filters.excludeKeywords.length ? filters.excludeKeywords.join(", ") : "нет";
+
   return [
-    `<b>Твои фильтры</b>`,
-    `Бюджет: $${Number(filters.maxPriceUsd || config.maxPriceUsd).toLocaleString("en-US")}`,
-    `Мин. оценка для родителей: ${filters.minParentScore ?? config.minParentScore}/10`,
-    `Типы: ${escapeHtml(categories)}`,
+    `<b>Фильтры</b>`,
+    `Цена: ${filters.minPriceUsd ? `${money(filters.minPriceUsd)}-` : "до "}${money(filters.maxPriceUsd)}`,
+    `Тип: ${escapeHtml(categories)}`,
     `Районы: ${escapeHtml(locations)}`,
+    `Комнаты: ${rangeText(filters.minRooms, filters.maxRooms)}`,
+    `Площадь: ${rangeText(filters.minAreaSqm, filters.maxAreaSqm, " м²")}`,
+    `Этаж: ${rangeText(filters.minFloor, filters.maxFloor)}`,
+    `До центра: ${filters.maxDistanceMinutes ? `до ${filters.maxDistanceMinutes} мин` : "любой"}`,
+    `Цена за м²: ${filters.maxPricePerSqm ? `до ${money(filters.maxPricePerSqm)}` : "любая"}`,
+    `Лифт: ${elevator}`,
+    `Состояние: ${conditionLabel(filters.condition)}`,
+    `Мин. качество: ${filters.minQualityScore}/10`,
+    `Ключевые слова: ${escapeHtml(keywords)}`,
+    `Исключить слова: ${escapeHtml(excludeKeywords)}`,
   ].join("\n");
 }
 
+function haystack(item) {
+  return normalizeText([item.title, item.location, item.rawText].filter(Boolean).join(" ")).toLowerCase();
+}
+
 function matchesSubscriber(config, subscriber, item) {
-  const filters = subscriber.filters || defaultFilters(config);
-  if (item.priceUsd > (filters.maxPriceUsd || config.maxPriceUsd)) return false;
-  if (item.priceUsd < (filters.minPriceUsd || config.minPriceUsd || 0)) return false;
-  if (item.parentScore < (filters.minParentScore ?? config.minParentScore)) return false;
+  const filters = normalizeFilters(config, subscriber.filters || defaultFilters(config));
+  if (item.priceUsd > filters.maxPriceUsd) return false;
+  if (item.priceUsd < (filters.minPriceUsd || 0)) return false;
+  if (scoreOf(item) < filters.minQualityScore) return false;
   if (filters.categories?.length && !filters.categories.includes(item.kindKey)) return false;
   if (filters.locations?.length && !filters.locations.includes(item.location)) return false;
+  if (filters.minRooms && (!item.rooms || item.rooms < filters.minRooms)) return false;
+  if (filters.maxRooms && (!item.rooms || item.rooms > filters.maxRooms)) return false;
+  if (filters.minAreaSqm && (!item.areaSqm || item.areaSqm < filters.minAreaSqm)) return false;
+  if (filters.maxAreaSqm && (!item.areaSqm || item.areaSqm > filters.maxAreaSqm)) return false;
+  if (filters.maxPricePerSqm && (!item.pricePerSqm || item.pricePerSqm > filters.maxPricePerSqm)) return false;
+  if (filters.minFloor && (!item.floor?.current || item.floor.current < filters.minFloor)) return false;
+  if (filters.maxFloor && (!item.floor?.current || item.floor.current > filters.maxFloor)) return false;
+  if (filters.maxDistanceMinutes && (item.minutesToCenter === null || item.minutesToCenter === undefined || item.minutesToCenter > filters.maxDistanceMinutes)) return false;
+  if (filters.elevator === "yes" && item.elevator !== true) return false;
+  if (filters.elevator === "no" && item.elevator !== false) return false;
+  if (filters.condition === "ready" && !["ready", "partial"].includes(item.condition)) return false;
+  if (filters.condition === "needs_work" && item.condition !== "needs_work") return false;
+
+  const text = haystack(item);
+  if (filters.keywords.length && !filters.keywords.every((keyword) => text.includes(keyword.toLowerCase()))) return false;
+  if (filters.excludeKeywords.length && filters.excludeKeywords.some((keyword) => text.includes(keyword.toLowerCase()))) return false;
   return true;
 }
 
 function matchingListings(config, subscriber, listings, limit = 10, mode = "latest") {
   const filtered = (listings || []).filter((item) => matchesSubscriber(config, subscriber, item));
   if (mode === "top") {
-    filtered.sort((a, b) => b.parentScore - a.parentScore || a.priceUsd - b.priceUsd);
+    filtered.sort((a, b) => scoreOf(b) - scoreOf(a) || a.priceUsd - b.priceUsd);
   } else {
     filtered.sort((a, b) => String(b.discoveredAt || b.scannedAt).localeCompare(String(a.discoveredAt || a.scannedAt)));
   }
@@ -109,9 +182,40 @@ function parseNumberArg(args, fallback) {
   return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
+function isResetText(text) {
+  return /^(all|any|все|любой|любое|reset|сброс|off|none)$/i.test(text.trim());
+}
+
+function numbersFromText(text) {
+  return (text.match(/\d+(?:[.,]\d+)?/g) || []).map((value) => Number(value.replace(",", "."))).filter((value) => Number.isFinite(value));
+}
+
+function parseRangeArg(args, single = "max") {
+  const text = args.join(" ").toLowerCase();
+  if (!text || isResetText(text)) return { reset: true };
+
+  const numbers = numbersFromText(text);
+  if (numbers.length === 0) return null;
+  if (numbers.length >= 2) return { min: Math.min(numbers[0], numbers[1]), max: Math.max(numbers[0], numbers[1]) };
+
+  const value = numbers[0];
+  if (/от|from|min|\+/.test(text) || single === "min") return { min: value, max: null };
+  if (/до|under|max|≤/.test(text) || single === "max") return { min: null, max: value };
+  return { min: value, max: value };
+}
+
+function parseListArg(args) {
+  const text = args.join(" ").trim();
+  if (!text || isResetText(text)) return [];
+  return text
+    .split(",")
+    .map((item) => normalizeText(item))
+    .filter(Boolean);
+}
+
 function parseAreas(config, args) {
   const text = args.join(" ").trim();
-  if (!text || /^all|все|reset|сброс$/i.test(text)) return [];
+  if (!text || isResetText(text)) return [];
 
   const lowered = text.toLowerCase();
   const matched = config.defaultLocations.filter((location) => lowered.includes(location.toLowerCase()));
@@ -132,12 +236,28 @@ function parseTypes(args) {
   return types.length ? types : ["apartment", "house"];
 }
 
+function parseElevator(args) {
+  const text = args.join(" ").toLowerCase();
+  if (!text || isResetText(text)) return "any";
+  if (/yes|да|лифт|with/.test(text) && !/без|no/.test(text)) return "yes";
+  if (/no|нет|без/.test(text)) return "no";
+  return "any";
+}
+
+function parseCondition(args) {
+  const text = args.join(" ").toLowerCase();
+  if (!text || isResetText(text)) return "any";
+  if (/под ремонт|без ремонта|нужен|needs|old|unfinished|repair/.test(text)) return "needs_work";
+  if (/ready|готов|с ремонтом|renovated|major|euro|designer/.test(text)) return "ready";
+  return "any";
+}
+
 function commandKeyboard() {
   return {
     keyboard: [
       [{ text: "/latest" }, { text: "/top" }],
       [{ text: "/filters" }, { text: "/status" }],
-      [{ text: "/help" }],
+      [{ text: "/setup" }, { text: "/help" }],
     ],
     resize_keyboard: true,
   };
@@ -146,23 +266,70 @@ function commandKeyboard() {
 function helpText(config, state) {
   const username = state.bot?.username ? `@${state.bot.username}` : "бота";
   return [
-    `<b>List.am Parents Bot</b>`,
-    `Я слежу за новыми квартирами/домами до $${config.maxPriceUsd.toLocaleString("en-US")} и отправляю варианты, которые удобны для родителей.`,
+    `<b>List.am Real Estate Bot</b>`,
+    `Я слежу за новыми квартирами и домами до ${money(config.maxPriceUsd)} и присылаю совпадения по твоим фильтрам.`,
     "",
-    `<b>Команды</b>`,
-    `/start - подписаться`,
-    `/stop - отписаться`,
-    `/latest - последние найденные варианты`,
-    `/top - лучшие по оценке для родителей`,
+    `<b>Главное</b>`,
+    `/start - включить подписку`,
+    `/latest - последние варианты`,
+    `/top - лучшие по качеству`,
     `/filters - показать фильтры`,
-    `/budget 100000 - изменить бюджет`,
-    `/score 7 - минимальная оценка 0-10`,
+    `/setup - быстрые пресеты`,
+    "",
+    `<b>Фильтры</b>`,
+    `/price 80000-120000 - диапазон цены`,
+    `/budget 100000 - цена до суммы`,
+    `/rooms 2-3 - комнаты`,
+    `/area 50-100 - площадь`,
+    `/sqm 1600 - цена за м² до суммы`,
+    `/floor 1-4 - этаж`,
+    `/distance 25 - до центра не дальше минут`,
+    `/elevator yes - только с лифтом`,
+    `/condition ready - с ремонтом`,
+    `/keywords gas, balcony - обязательные слова`,
+    `/exclude agency - исключить слова`,
     `/areas Avan, Nor Nork, Abovyan - районы`,
-    `/areas all - снова все районы`,
-    `/types apartment, house - типы жилья`,
-    `/reset - сбросить фильтры`,
+    `/types apartment, house - тип жилья`,
+    `/score 6 - минимальное качество 0-10`,
+    `/reset - сбросить все фильтры`,
     `/share - ссылка, чтобы передать ${escapeHtml(username)}`,
   ].join("\n");
+}
+
+function setupText() {
+  return [
+    `<b>Быстрая настройка</b>`,
+    `/preset ready - больше готовых к жизни вариантов`,
+    `/preset value - искать выгодную цену за м²`,
+    `/preset apartment - только квартиры`,
+    `/preset house - только дома`,
+    `/preset near - ближе к центру`,
+    "",
+    `После пресета можно докрутить вручную: например /rooms 2-3 и /floor 1-5.`,
+  ].join("\n");
+}
+
+function applyPreset(config, subscriber, name) {
+  const filters = normalizeFilters(config, subscriber.filters);
+  if (name === "ready") {
+    filters.condition = "ready";
+    filters.minQualityScore = Math.max(filters.minQualityScore, 6);
+    filters.maxFloor ||= 5;
+  } else if (name === "value") {
+    filters.maxPricePerSqm = 1500;
+    filters.minQualityScore = Math.max(filters.minQualityScore, 5);
+  } else if (name === "apartment" || name === "flat") {
+    filters.categories = ["apartment"];
+  } else if (name === "house") {
+    filters.categories = ["house"];
+    filters.maxDistanceMinutes ||= 30;
+  } else if (name === "near") {
+    filters.maxDistanceMinutes = 20;
+  } else {
+    return null;
+  }
+  subscriber.filters = filters;
+  return filters;
 }
 
 async function configureTelegram(config, state) {
@@ -175,18 +342,40 @@ async function configureTelegram(config, state) {
     firstName: bot.first_name,
   };
 
+  await telegramApi(config, "setMyName", {
+    name: "List.am Real Estate Bot",
+  });
+  await telegramApi(config, "setMyShortDescription", {
+    short_description: "Новые квартиры и дома с удобными фильтрами.",
+  });
+  await telegramApi(config, "setMyDescription", {
+    description:
+      "Монитор новых объявлений List.am по недвижимости. Отправляет квартиры и дома по твоим фильтрам: цена, район, комнаты, площадь, этаж, лифт, состояние и цена за м².",
+  });
   await telegramApi(config, "setMyCommands", {
     commands: [
-      { command: "start", description: "Подписаться на новые объявления" },
-      { command: "latest", description: "Последние найденные варианты" },
-      { command: "top", description: "Лучшие варианты для родителей" },
+      { command: "start", description: "Включить подписку" },
+      { command: "latest", description: "Последние варианты" },
+      { command: "top", description: "Лучшие по качеству" },
       { command: "filters", description: "Мои фильтры" },
-      { command: "budget", description: "Изменить бюджет" },
-      { command: "areas", description: "Выбрать районы" },
-      { command: "score", description: "Минимальная оценка" },
+      { command: "setup", description: "Быстрая настройка" },
+      { command: "price", description: "Диапазон цены" },
+      { command: "budget", description: "Бюджет до суммы" },
+      { command: "rooms", description: "Комнаты" },
+      { command: "area", description: "Площадь" },
+      { command: "sqm", description: "Цена за м²" },
+      { command: "floor", description: "Этаж" },
+      { command: "distance", description: "Минут до центра" },
+      { command: "elevator", description: "Фильтр лифта" },
+      { command: "condition", description: "Состояние" },
+      { command: "keywords", description: "Обязательные слова" },
+      { command: "exclude", description: "Исключить слова" },
+      { command: "areas", description: "Районы" },
+      { command: "types", description: "Тип жилья" },
+      { command: "score", description: "Минимальное качество" },
       { command: "status", description: "Статус монитора" },
       { command: "help", description: "Помощь" },
-      { command: "stop", description: "Отписаться" },
+      { command: "stop", description: "Выключить подписку" },
     ],
   });
 
@@ -216,18 +405,13 @@ async function handleCommand(config, state, message, hooks = {}) {
   const command = parts[0].split("@")[0].toLowerCase();
   const args = parts.slice(1);
   const subscriber = upsertSubscriber(config, state, chat, from);
-  subscriber.filters ||= defaultFilters(config);
+  subscriber.filters = normalizeFilters(config, subscriber.filters);
 
   if (command === "/start" || command === "/subscribe") {
     await sendMessage(
       config,
       chat.id,
-      [
-        "Подписка включена.",
-        "Я буду присылать новые объявления, которые проходят твои фильтры.",
-        "",
-        filtersText(config, subscriber.filters),
-      ].join("\n"),
+      ["Подписка включена.", "Буду присылать новые объявления, которые проходят твои фильтры.", "", filtersText(config, subscriber.filters)].join("\n"),
       { replyMarkup: commandKeyboard() }
     );
     return true;
@@ -244,6 +428,11 @@ async function handleCommand(config, state, message, hooks = {}) {
     return true;
   }
 
+  if (command === "/setup") {
+    await sendMessage(config, chat.id, setupText());
+    return true;
+  }
+
   if (command === "/share") {
     const username = state.bot?.username;
     const link = username ? `https://t.me/${username}` : "Ссылка появится после первого запуска Telegram API.";
@@ -256,17 +445,122 @@ async function handleCommand(config, state, message, hooks = {}) {
     return true;
   }
 
-  if (command === "/budget") {
-    const budget = clamp(Math.round(parseNumberArg(args, config.maxPriceUsd)), 10000, 10000000);
-    subscriber.filters.maxPriceUsd = budget;
-    await sendMessage(config, chat.id, `Бюджет обновлен: $${budget.toLocaleString("en-US")}\n\n${filtersText(config, subscriber.filters)}`);
+  if (command === "/preset") {
+    const preset = normalizeText(args.join(" ")).toLowerCase();
+    if (!preset || isResetText(preset)) {
+      await sendMessage(config, chat.id, setupText());
+      return true;
+    }
+    const filters = applyPreset(config, subscriber, preset);
+    await sendMessage(config, chat.id, filters ? `Пресет применен.\n\n${filtersText(config, filters)}` : setupText());
     return true;
   }
 
-  if (command === "/score" || command === "/minscore") {
-    const score = clamp(parseNumberArg(args, subscriber.filters.minParentScore ?? config.minParentScore), 0, 10);
-    subscriber.filters.minParentScore = Math.round(score * 10) / 10;
-    await sendMessage(config, chat.id, `Минимальная оценка обновлена: ${subscriber.filters.minParentScore}/10`);
+  if (command === "/budget") {
+    const budget = clamp(Math.round(parseNumberArg(args, config.maxPriceUsd)), 10000, 10000000);
+    subscriber.filters.maxPriceUsd = budget;
+    await sendMessage(config, chat.id, `Бюджет обновлен: ${money(budget)}\n\n${filtersText(config, subscriber.filters)}`);
+    return true;
+  }
+
+  if (command === "/price") {
+    const range = parseRangeArg(args, "max");
+    if (!range) {
+      await sendMessage(config, chat.id, "Пример: /price 80000-120000 или /price any");
+      return true;
+    }
+    subscriber.filters.minPriceUsd = range.reset ? config.minPriceUsd : Math.round(range.min || 0);
+    subscriber.filters.maxPriceUsd = range.reset ? config.maxPriceUsd : Math.round(range.max || range.min || config.maxPriceUsd);
+    await sendMessage(config, chat.id, `Цена обновлена.\n\n${filtersText(config, subscriber.filters)}`);
+    return true;
+  }
+
+  if (command === "/score" || command === "/quality" || command === "/minscore") {
+    const score = clamp(parseNumberArg(args, subscriber.filters.minQualityScore ?? config.minQualityScore), 0, 10);
+    subscriber.filters.minQualityScore = Math.round(score * 10) / 10;
+    await sendMessage(config, chat.id, `Минимальное качество обновлено: ${subscriber.filters.minQualityScore}/10`);
+    return true;
+  }
+
+  if (command === "/rooms") {
+    const range = parseRangeArg(args, "exact");
+    if (!range) {
+      await sendMessage(config, chat.id, "Пример: /rooms 2-3 или /rooms any");
+      return true;
+    }
+    subscriber.filters.minRooms = range.reset ? null : Math.round(range.min || 0) || null;
+    subscriber.filters.maxRooms = range.reset ? null : Math.round(range.max || range.min || 0) || null;
+    await sendMessage(config, chat.id, `Комнаты обновлены.\n\n${filtersText(config, subscriber.filters)}`);
+    return true;
+  }
+
+  if (command === "/area") {
+    const range = parseRangeArg(args, "min");
+    if (!range) {
+      await sendMessage(config, chat.id, "Пример: /area 50-100, /area от 60 или /area any");
+      return true;
+    }
+    subscriber.filters.minAreaSqm = range.reset ? null : Math.round(range.min || 0) || null;
+    subscriber.filters.maxAreaSqm = range.reset ? null : Math.round(range.max || 0) || null;
+    await sendMessage(config, chat.id, `Площадь обновлена.\n\n${filtersText(config, subscriber.filters)}`);
+    return true;
+  }
+
+  if (command === "/sqm" || command === "/m2") {
+    const range = parseRangeArg(args, "max");
+    if (!range) {
+      await sendMessage(config, chat.id, "Пример: /sqm 1600 или /sqm any");
+      return true;
+    }
+    subscriber.filters.maxPricePerSqm = range.reset ? null : Math.round(range.max || range.min || 0) || null;
+    await sendMessage(config, chat.id, `Цена за м² обновлена.\n\n${filtersText(config, subscriber.filters)}`);
+    return true;
+  }
+
+  if (command === "/floor") {
+    const range = parseRangeArg(args, "max");
+    if (!range) {
+      await sendMessage(config, chat.id, "Пример: /floor 1-4, /floor до 5 или /floor any");
+      return true;
+    }
+    subscriber.filters.minFloor = range.reset ? null : Math.round(range.min || 0) || null;
+    subscriber.filters.maxFloor = range.reset ? null : Math.round(range.max || range.min || 0) || null;
+    await sendMessage(config, chat.id, `Этаж обновлен.\n\n${filtersText(config, subscriber.filters)}`);
+    return true;
+  }
+
+  if (command === "/distance") {
+    const range = parseRangeArg(args, "max");
+    if (!range) {
+      await sendMessage(config, chat.id, "Пример: /distance 25 или /distance any");
+      return true;
+    }
+    subscriber.filters.maxDistanceMinutes = range.reset ? null : Math.round(range.max || range.min || 0) || null;
+    await sendMessage(config, chat.id, `Расстояние обновлено.\n\n${filtersText(config, subscriber.filters)}`);
+    return true;
+  }
+
+  if (command === "/elevator") {
+    subscriber.filters.elevator = parseElevator(args);
+    await sendMessage(config, chat.id, `Лифт обновлен.\n\n${filtersText(config, subscriber.filters)}`);
+    return true;
+  }
+
+  if (command === "/condition") {
+    subscriber.filters.condition = parseCondition(args);
+    await sendMessage(config, chat.id, `Состояние обновлено.\n\n${filtersText(config, subscriber.filters)}`);
+    return true;
+  }
+
+  if (command === "/keywords") {
+    subscriber.filters.keywords = parseListArg(args);
+    await sendMessage(config, chat.id, `Ключевые слова обновлены.\n\n${filtersText(config, subscriber.filters)}`);
+    return true;
+  }
+
+  if (command === "/exclude") {
+    subscriber.filters.excludeKeywords = parseListArg(args);
+    await sendMessage(config, chat.id, `Исключения обновлены.\n\n${filtersText(config, subscriber.filters)}`);
     return true;
   }
 
@@ -280,7 +574,7 @@ async function handleCommand(config, state, message, hooks = {}) {
   if (command === "/types") {
     const types = parseTypes(args);
     subscriber.filters.categories = types;
-    await sendMessage(config, chat.id, `Типы обновлены: ${escapeHtml(types.join(", "))}`);
+    await sendMessage(config, chat.id, `Типы обновлены: ${escapeHtml(types.map(categoryLabel).join(", "))}`);
     return true;
   }
 
@@ -294,7 +588,7 @@ async function handleCommand(config, state, message, hooks = {}) {
     const limit = clamp(Math.round(parseNumberArg(args, 8)), 1, 20);
     const listings = matchingListings(config, subscriber, state.listings || [], limit, command === "/top" ? "top" : "latest");
     if (listings.length === 0) {
-      await sendMessage(config, chat.id, "Пока нет сохраненных объявлений под твои фильтры. Подожди следующий скан или расширь фильтры.");
+      await sendMessage(config, chat.id, "Пока нет сохраненных объявлений под эти фильтры. Можно подождать следующий скан или расширить фильтры через /filters.");
       return true;
     }
     const title = command === "/top" ? "Лучшие варианты" : "Последние подходящие варианты";
@@ -307,7 +601,9 @@ async function handleCommand(config, state, message, hooks = {}) {
   if (command === "/status") {
     const activeCount = activeSubscribers(state, config).length;
     const lastScan = state.lastScan
-      ? `${state.lastScan.at}: найдено ${state.lastScan.scanned}, новых ${state.lastScan.new}, пропущено страниц ${state.lastScan.skipped || 0}`
+      ? `${state.lastScan.at}: найдено ${state.lastScan.scanned}, новых ${state.lastScan.new}, пропущено страниц ${state.lastScan.skipped || 0}${
+          state.lastScan.error ? `, ошибка: ${state.lastScan.error}` : ""
+        }`
       : "скана еще не было";
     const nextScan = state.nextScanAt ? state.nextScanAt : "планируется";
     await sendMessage(
@@ -364,6 +660,7 @@ async function notifySubscribers(config, state, newListings) {
   }
 
   for (const subscriber of recipients) {
+    subscriber.filters = normalizeFilters(config, subscriber.filters);
     const matches = newListings.filter((item) => matchesSubscriber(config, subscriber, item));
     if (matches.length === 0) continue;
     const title = `Новые объявления для ${escapeHtml(subscriberName(subscriber))}`;

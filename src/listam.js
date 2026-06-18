@@ -89,6 +89,20 @@ function parseFloor(text) {
   return floor ? { current: Number(floor[1]), total: Number(floor[2]), label: `${floor[1]}/${floor[2]}` } : null;
 }
 
+function parseElevator(text) {
+  if (/Elevator Available/i.test(text)) return true;
+  if (/No Elevator|Elevator Not Available/i.test(text)) return false;
+  return null;
+}
+
+function parseCondition(text) {
+  const lower = text.toLowerCase();
+  if (/renovation none|renovation old|unfinished|zero condition|needs renovation|no renovation/.test(lower)) return "needs_work";
+  if (/partial renovation|cosmetic renovation/.test(lower)) return "partial";
+  if (/major renovation|designer renovation|euro renovation|newly renovated|never occupied|renovated/.test(lower)) return "ready";
+  return "unknown";
+}
+
 function parseLocation(text, config) {
   for (const location of config.defaultLocations) {
     const escaped = location.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
@@ -116,18 +130,18 @@ function cleanTitle(text, price, config) {
   return title;
 }
 
-function parentScore(item) {
+function qualityScore(item) {
   let score = 5;
   const text = item.rawText.toLowerCase();
 
   if (item.floor?.current === 1) score += 2;
   else if (item.floor?.current === 2) score += 1.2;
-  else if (item.rawText.includes("Elevator Available")) score += 0.8;
-  else if (item.floor?.current >= 4 && !item.rawText.includes("Elevator Available")) score -= 2;
+  else if (item.elevator === true) score += 0.8;
+  else if (item.floor?.current >= 4 && item.elevator !== true) score -= 2;
 
-  if (text.includes("major renovation") || text.includes("designer renovation") || text.includes("euro renovation")) score += 1.5;
-  if (text.includes("partial renovation") || text.includes("cosmetic renovation")) score += 0.4;
-  if (text.includes("renovation none") || text.includes("renovation old") || text.includes("unfinished")) score -= 1.5;
+  if (item.condition === "ready") score += 1.5;
+  if (item.condition === "partial") score += 0.4;
+  if (item.condition === "needs_work") score -= 1.5;
   if (text.includes("individual heating") || text.includes("heating system") || text.includes("natural gas")) score += 0.8;
   if (text.includes("school") || text.includes("kindergarten") || text.includes("supermarket") || text.includes("shops")) score += 0.8;
   if (item.kindKey === "house" && (text.includes("3 floors") || text.includes("three story"))) score -= 1.5;
@@ -166,10 +180,12 @@ function parseItem(raw, category, config) {
     landSqm: parseLandArea(text),
     location,
     minutesToCenter: location ? config.minutesToCenter[location] : null,
+    elevator: parseElevator(text),
+    condition: parseCondition(text),
     rawText: text,
     scannedAt: new Date().toISOString(),
   };
-  item.parentScore = parentScore(item);
+  item.qualityScore = qualityScore(item);
   return item;
 }
 
@@ -254,7 +270,7 @@ async function scanListAm(config, logger = console) {
     return true;
   });
 
-  uniqueListings.sort((a, b) => b.parentScore - a.parentScore || a.priceUsd - b.priceUsd);
+  uniqueListings.sort((a, b) => b.qualityScore - a.qualityScore || a.priceUsd - b.priceUsd);
 
   return {
     listings: uniqueListings,

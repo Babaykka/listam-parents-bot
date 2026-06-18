@@ -43,9 +43,55 @@ function defaultFilters(config) {
   return {
     maxPriceUsd: config.maxPriceUsd,
     minPriceUsd: config.minPriceUsd,
-    minParentScore: config.minParentScore,
+    minQualityScore: config.minQualityScore,
     locations: [],
     categories: config.categories.map((category) => category.key),
+    minRooms: null,
+    maxRooms: null,
+    minAreaSqm: null,
+    maxAreaSqm: null,
+    maxPricePerSqm: null,
+    minFloor: null,
+    maxFloor: null,
+    maxDistanceMinutes: null,
+    elevator: "any",
+    condition: "any",
+    keywords: [],
+    excludeKeywords: [],
+  };
+}
+
+function numberOrNull(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : null;
+}
+
+function listOrEmpty(value) {
+  return Array.isArray(value) ? value.map((item) => String(item).trim()).filter(Boolean) : [];
+}
+
+function normalizeFilters(config, filters = {}) {
+  const defaults = defaultFilters(config);
+  return {
+    ...defaults,
+    ...filters,
+    maxPriceUsd: numberOrNull(filters.maxPriceUsd) || defaults.maxPriceUsd,
+    minPriceUsd: numberOrNull(filters.minPriceUsd) || defaults.minPriceUsd,
+    minQualityScore: Number(filters.minQualityScore ?? filters.minParentScore ?? defaults.minQualityScore) || 0,
+    locations: listOrEmpty(filters.locations),
+    categories: listOrEmpty(filters.categories).length ? listOrEmpty(filters.categories) : defaults.categories,
+    minRooms: numberOrNull(filters.minRooms),
+    maxRooms: numberOrNull(filters.maxRooms),
+    minAreaSqm: numberOrNull(filters.minAreaSqm),
+    maxAreaSqm: numberOrNull(filters.maxAreaSqm),
+    maxPricePerSqm: numberOrNull(filters.maxPricePerSqm),
+    minFloor: numberOrNull(filters.minFloor),
+    maxFloor: numberOrNull(filters.maxFloor),
+    maxDistanceMinutes: numberOrNull(filters.maxDistanceMinutes),
+    elevator: ["yes", "no", "any"].includes(filters.elevator) ? filters.elevator : "any",
+    condition: ["ready", "needs_work", "any"].includes(filters.condition) ? filters.condition : "any",
+    keywords: listOrEmpty(filters.keywords),
+    excludeKeywords: listOrEmpty(filters.excludeKeywords),
   };
 }
 
@@ -72,7 +118,7 @@ function upsertSubscriber(config, state, chat, from) {
     existing.firstName = base.firstName;
     existing.lastName = base.lastName;
     existing.updatedAt = base.updatedAt;
-    existing.filters ||= defaultFilters(config);
+    existing.filters = normalizeFilters(config, existing.filters);
     return existing;
   }
 
@@ -110,6 +156,7 @@ module.exports = {
   activeSubscribers,
   deactivateSubscriber,
   defaultFilters,
+  normalizeFilters,
   readState,
   upsertSubscriber,
   writeState,
