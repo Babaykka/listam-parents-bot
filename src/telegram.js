@@ -42,6 +42,35 @@ async function sendMessage(config, chatId, text, options = {}) {
   });
 }
 
+async function sendChatAction(config, chatId, action = "typing") {
+  if (config.dryRun) {
+    console.log(`[dry-run telegram action -> ${chatId}] ${action}`);
+    return true;
+  }
+
+  return telegramApi(config, "sendChatAction", {
+    chat_id: chatId,
+    action,
+  }).catch((error) => {
+    console.warn(`[telegram] sendChatAction failed: ${error.message}`);
+    return false;
+  });
+}
+
+async function withTyping(config, chatId, task) {
+  await sendChatAction(config, chatId);
+  const timer = setInterval(() => {
+    sendChatAction(config, chatId).catch(() => {});
+  }, 4000);
+  timer.unref?.();
+
+  try {
+    return await task();
+  } finally {
+    clearInterval(timer);
+  }
+}
+
 async function setupTelegramApi(config, method, body) {
   try {
     return await telegramApi(config, method, body);
@@ -524,17 +553,54 @@ function aiSetupText(config) {
   ].join("\n");
 }
 
+function assistantAnswerFallback(config) {
+  return [
+    `Я бот для поиска недвижимости на List.am.`,
+    `Ты можешь написать обычным текстом, что ищешь, а я превращу это в фильтры и попрошу подтвердить через /apply.`,
+    "",
+    `Пример: дом до ${money(config.maxPriceUsd)}, до 30 минут от центра, без агентств.`,
+    "",
+    `/tour - коротко объясню всё с нуля`,
+    `/latest - покажу сохраненные варианты`,
+    `/status - покажу, работает ли монитор`,
+  ].join("\n");
+}
+
+function isBotUsageQuestion(text) {
+  const lower = normalizeText(text).toLowerCase();
+  const asksAboutBot = /(как.*(польз|работ|настро)|что.*(уме|можешь|делаешь)|кто\s+ты|зачем\s+ты|помощ|help|инструкц|команд|как\s+искать|привет|здравств)/i.test(lower);
+  const hasSearchCriteria = /(кварт|дом|таун|комнат|ремонт|центр|агент|этаж|участ|район|лифт|м²|m2|sqm|\$|доллар|до\s*\d|от\s*\d)/i.test(lower);
+  return asksAboutBot && !hasSearchCriteria;
+}
+
 async function proposeAiFilters(config, subscriber, chatId, text) {
   if (!config.aiFiltersEnabled || !config.openaiApiKey) {
-    await sendMessage(config, chatId, aiSetupText(config));
+    await sendMessage(config, chatId, isBotUsageQuestion(text) ? assistantAnswerFallback(config) : aiSetupText(config));
     return true;
   }
 
-  await sendMessage(config, chatId, "Понял, сейчас превращу это в понятные фильтры и покажу перед применением.");
   try {
-    const result = await parseFilterRequest(config, subscriber.filters, text);
-    if (result.action === "help" || result.action === "unclear" || result.confidence < 0.35) {
-      await sendMessage(config, chatId, [`Не уверен, что понял запрос достаточно точно.`, result.summary ? `Похоже: ${escapeHtml(result.summary)}` : null, "", aiSetupText(config)].filter(Boolean).join("\n"));
+    const result = await withTyping(config, chatId, () => parseFilterRequest(config, subscriber.filters, text));
+    if (result.action === "answer" || result.action === "help") {
+      await sendMessage(config, chatId, escapeHtml(result.reply || assistantAnswerFallback(config)));
+      return true;
+    }
+
+    if (result.action === "unclear" || result.confidence < 0.35) {
+      await sendMessage(
+        config,
+        chatId,
+        [
+          `Не совсем понял запрос.`,
+          result.reply ? escapeHtml(result.reply) : result.summary ? `Похоже: ${escapeHtml(result.summary)}` : null,
+          "",
+          `Можешь написать проще, например:`,
+          `<i>дом до 120к, до 30 минут от центра, без агентств</i>`,
+          `Или нажми /tour, если хочешь быстро понять, как я работаю.`,
+        ]
+          .filter(Boolean)
+          .join("\n")
+      );
       return true;
     }
 
@@ -562,6 +628,10 @@ async function proposeAiFilters(config, subscriber, chatId, text) {
     return true;
   } catch (error) {
     console.error(`[openai] filter parse failed: ${error.message}`);
+    if (isBotUsageQuestion(text)) {
+      await sendMessage(config, chatId, assistantAnswerFallback(config));
+      return true;
+    }
     await sendMessage(config, chatId, `Настройка текстом сейчас не сработала: ${escapeHtml(error.message)}\nМожно настроить через /setup или попробовать написать проще.`);
     return true;
   }
@@ -650,6 +720,9 @@ async function handleCommand(config, state, message, hooks = {}) {
   const args = parts.slice(1);
   const subscriber = upsertSubscriber(config, state, chat, from);
   subscriber.filters = normalizeFilters(config, subscriber.filters);
+  if (command.startsWith("/") || chat.type === "private") {
+    await sendChatAction(config, chat.id);
+  }
 
   if (command === "/start" || command === "/subscribe") {
     await sendMessage(

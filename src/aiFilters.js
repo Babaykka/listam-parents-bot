@@ -27,11 +27,12 @@ function filterSchema(config) {
   return {
     type: "object",
     additionalProperties: false,
-    required: ["action", "confidence", "summary", "patch", "clear"],
+    required: ["action", "confidence", "summary", "reply", "patch", "clear"],
     properties: {
-      action: { type: "string", enum: ["update", "reset", "unclear", "help"] },
+      action: { type: "string", enum: ["update", "reset", "unclear", "help", "answer"] },
       confidence: { type: "number", minimum: 0, maximum: 1 },
       summary: { type: "string" },
+      reply: { type: "string" },
       clear: {
         type: "array",
         items: { type: "string", enum: FILTER_FIELDS },
@@ -151,7 +152,9 @@ async function parseFilterRequest(config, currentFilters, userText) {
       {
         role: "developer",
         content: [
-          "You convert natural language real-estate search preferences into a JSON filter patch for a Telegram bot.",
+          "You are the assistant inside a Telegram bot for List.am real-estate monitoring in Yerevan and nearby places.",
+          "You convert natural language real-estate search preferences into a JSON filter patch when the user describes what they want to buy or monitor.",
+          "You also answer short questions about yourself, how the bot works, and which commands to use.",
           "Reply only through the provided JSON schema.",
           "Keep unspecified filters unchanged by returning null or keep.",
           "Use reset/all only when the user clearly asks to clear filters.",
@@ -163,6 +166,10 @@ async function parseFilterRequest(config, currentFilters, userText) {
           "Interpret 'под ремонт', 'без ремонта', 'unfinished' as condition needs_work.",
           "Interpret 'без агентств/агентов/agency' as excludeKeywords containing agency and агент.",
           "If the user writes a broad wish, make the best useful patch and summarize it in Russian.",
+          "If the user asks how to use the bot, who you are, what you can do, or greets you without search criteria, set action to answer and write a friendly Russian reply in reply.",
+          "For answer/help actions, explain that the user can write search preferences in normal text, then confirm with /apply; mention /latest, /filters, /status, /scan, and /tour only when useful.",
+          "If the user asks for live status or current listings, do not invent data; tell them to use /status, /latest, /houses, or /apartments.",
+          "For unrelated questions, answer briefly that you are focused on List.am real-estate search and can help set filters or explain the bot.",
         ].join("\n"),
       },
       {
@@ -211,6 +218,7 @@ async function parseFilterRequest(config, currentFilters, userText) {
     action: parsed.action,
     confidence: Number(parsed.confidence) || 0,
     summary: normalizeText(parsed.summary),
+    reply: normalizeText(parsed.reply),
     clear: Array.isArray(parsed.clear) ? parsed.clear.filter((field) => FILTER_FIELDS.includes(field)) : [],
     patch: sanitizePatch(config, parsed.patch || {}),
   };
