@@ -18,18 +18,25 @@ let server = null;
 let nextScanTimer = null;
 let telegramPollTimer = null;
 
-const RELEASE_NOTICE_ID = "2026-06-20-full-test-hardening";
+const RELEASE_NOTICE_ID = "2026-06-20-ai-memory-start-button";
 const RELEASE_NOTICE_TEXT = [
   "<b>Обновление бота</b>",
-  "Я проверил бота под нагрузкой и сделал уведомления надежнее.",
+  "Я улучшил настройку фильтров через обычный текст.",
   "",
   "Что изменилось:",
-  "- обычно я проверяю новые объявления каждые 5 минут;",
-  "- если List.am временно просит проверку браузера, я сам подожду и попробую снова;",
-  "- если Telegram перестал принимать сообщения в какой-то чат, остальные пользователи продолжат получать уведомления.",
+  "- бот теперь лучше помнит предыдущую настройку, пока ты уточняешь фильтр;",
+  "- можно писать коротко: «добавь Zovuni», «еще дома», «без агентств»;",
+  "- после обновлений будет кнопка /start, чтобы быстро обновить меню и подсказки.",
   "",
-  "Ничего нажимать не нужно. Состояние бота всегда можно посмотреть через /status.",
+  "Чтобы обновить меню, нажми /start.",
 ].join("\n");
+
+function releaseNoticeKeyboard() {
+  return {
+    keyboard: [[{ text: "/start" }], [{ text: "/status" }, { text: "/latest" }]],
+    resize_keyboard: true,
+  };
+}
 
 function json(res, status, payload) {
   const body = JSON.stringify(payload, null, 2);
@@ -212,11 +219,11 @@ function canSendScanIssueAlert(config, state) {
   return elapsedMinutes >= config.scanIssueAlertCooldownMinutes;
 }
 
-async function sendToActiveSubscribers(config, state, text) {
+async function sendToActiveSubscribers(config, state, text, options = {}) {
   const recipients = activeSubscribers(state, config);
   let changed = false;
   for (const subscriber of recipients) {
-    await sendMessage(config, subscriber.id, text).catch((error) => {
+    await sendMessage(config, subscriber.id, text, options).catch((error) => {
       console.error(`[telegram] scan health alert failed: ${error.message}`);
       if (isPermanentTelegramDeliveryError(error)) {
         deactivateSubscriber(state, subscriber.id);
@@ -272,7 +279,7 @@ async function maybeSendReleaseNotice() {
     return;
   }
 
-  await sendToActiveSubscribers(config, state, RELEASE_NOTICE_TEXT);
+  await sendToActiveSubscribers(config, state, RELEASE_NOTICE_TEXT, { replyMarkup: releaseNoticeKeyboard() });
   state.sentReleaseNotices[RELEASE_NOTICE_ID] = {
     at: new Date().toISOString(),
     recipients: recipients.length,

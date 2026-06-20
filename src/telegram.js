@@ -537,9 +537,28 @@ function orderedRange(min, max) {
   return { min, max };
 }
 
-function applyAiPatch(config, currentFilters, result) {
+function isAdditiveFilterText(text) {
+  return /\b(add|include|also|plus)\b|добав|добавь|добавить|добавим|плюс|ещ[её]|также|\+/i.test(normalizeText(text));
+}
+
+function isReplacementFilterText(text) {
+  return /\b(only|replace|instead)\b|только|замени|заменить|вместо|оставь\s+только/i.test(normalizeText(text));
+}
+
+function mergeUnique(existing, incoming) {
+  return Array.from(new Set([...(existing || []), ...(incoming || [])].filter(Boolean)));
+}
+
+function shouldMergeAiListPatch(userText, field, baseFilters, patch) {
+  if (!Array.isArray(patch[field]) || patch[field].length === 0) return false;
+  if (isReplacementFilterText(userText) || !isAdditiveFilterText(userText)) return false;
+  return Array.isArray(baseFilters[field]) && baseFilters[field].length > 0;
+}
+
+function applyAiPatch(config, currentFilters, result, userText = "") {
   let next = clearFilterFields(config, normalizeFilters(config, currentFilters), result.clear || []);
   if (result.action === "reset") return defaultFilters(config);
+  const baseFilters = normalizeFilters(config, currentFilters);
 
   const patch = result.patch || {};
   for (const key of ["minPriceUsd", "maxPriceUsd", "maxPricePerSqm", "maxDistanceMinutes", "minQualityScore"]) {
@@ -563,12 +582,22 @@ function applyAiPatch(config, currentFilters, result) {
   if (land.max !== null && land.max !== undefined) next.maxLandSqm = land.max;
   if (next.minLandSqm || next.maxLandSqm) next.categories = ["house"];
 
-  if (Array.isArray(patch.locations)) next.locations = patch.locations;
-  if (Array.isArray(patch.categories) && patch.categories.length) next.categories = patch.categories;
+  if (Array.isArray(patch.locations)) {
+    next.locations = shouldMergeAiListPatch(userText, "locations", baseFilters, patch) ? mergeUnique(baseFilters.locations, patch.locations) : patch.locations;
+  }
+  if (Array.isArray(patch.categories) && patch.categories.length) {
+    next.categories = shouldMergeAiListPatch(userText, "categories", baseFilters, patch) ? mergeUnique(baseFilters.categories, patch.categories) : patch.categories;
+  }
   if (["yes", "no", "any"].includes(patch.elevator)) next.elevator = patch.elevator;
   if (["ready", "needs_work", "any"].includes(patch.condition)) next.condition = patch.condition;
-  if (Array.isArray(patch.keywords)) next.keywords = patch.keywords;
-  if (Array.isArray(patch.excludeKeywords)) next.excludeKeywords = patch.excludeKeywords;
+  if (Array.isArray(patch.keywords)) {
+    next.keywords = shouldMergeAiListPatch(userText, "keywords", baseFilters, patch) ? mergeUnique(baseFilters.keywords, patch.keywords) : patch.keywords;
+  }
+  if (Array.isArray(patch.excludeKeywords)) {
+    next.excludeKeywords = shouldMergeAiListPatch(userText, "excludeKeywords", baseFilters, patch)
+      ? mergeUnique(baseFilters.excludeKeywords, patch.excludeKeywords)
+      : patch.excludeKeywords;
+  }
 
   return normalizeFilters(config, next);
 }
@@ -614,7 +643,15 @@ async function proposeAiFilters(config, subscriber, chatId, text) {
   }
 
   try {
-    const result = await withTyping(config, chatId, () => parseFilterRequest(config, subscriber.filters, text));
+    const pending = subscriber.pendingAiFilters;
+    const baseFilters = pending?.filters ? normalizeFilters(config, pending.filters) : subscriber.filters;
+    const result = await withTyping(config, chatId, () =>
+      parseFilterRequest(config, baseFilters, text, {
+        source: pending?.filters ? "pending" : "active",
+        pendingSummary: pending?.summary || "",
+        pendingSourceText: pending?.sourceText || "",
+      })
+    );
     if (result.action === "answer" || result.action === "help") {
       await sendMessage(config, chatId, escapeHtml(result.reply || assistantAnswerFallback(config)));
       return true;
@@ -638,12 +675,15 @@ async function proposeAiFilters(config, subscriber, chatId, text) {
       return true;
     }
 
-    const proposedFilters = applyAiPatch(config, subscriber.filters, result);
+    const proposedFilters = applyAiPatch(config, baseFilters, result, text);
     subscriber.pendingAiFilters = {
       sourceText: text,
       summary: result.summary,
+      previousSourceText: pending?.sourceText || "",
+      previousSummary: pending?.summary || "",
       filters: proposedFilters,
       createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     };
 
     await sendMessage(

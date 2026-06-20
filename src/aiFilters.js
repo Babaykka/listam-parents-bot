@@ -143,7 +143,7 @@ function sanitizePatch(config, patch) {
   };
 }
 
-async function parseFilterRequest(config, currentFilters, userText) {
+async function parseFilterRequest(config, currentFilters, userText, context = {}) {
   if (!config.openaiApiKey) throw new Error("OPENAI_API_KEY is not set");
 
   const body = {
@@ -170,6 +170,8 @@ async function parseFilterRequest(config, currentFilters, userText) {
           "For answer/help actions, explain that the user can write search preferences in normal text, then confirm with /apply; mention /latest, /filters, /status, /scan, and /tour only when useful.",
           "If the user asks for live status or current listings, do not invent data; tell them to use /status, /latest, /houses, or /apartments.",
           "For unrelated questions, answer briefly that you are focused on List.am real-estate search and can help set filters or explain the bot.",
+          "The provided currentFilters may be an unapplied pending filter draft. Treat short follow-up messages like 'add Zovuni', 'also houses', or 'without agencies too' as edits to currentFilters, not as a new search from defaults.",
+          "When the user says add/include/also for locations, categories, keywords, or excluded keywords, include the previous values plus the newly requested values in the patch unless they clearly say only/replace.",
         ].join("\n"),
       },
       {
@@ -178,6 +180,11 @@ async function parseFilterRequest(config, currentFilters, userText) {
           allowedLocations: config.defaultLocations,
           allowedCategories: ["apartment", "house"],
           currentFilters: normalizeFilters(config, currentFilters),
+          filterContext: {
+            source: context.source || "active",
+            pendingSummary: normalizeText(context.pendingSummary || ""),
+            pendingSourceText: normalizeText(context.pendingSourceText || ""),
+          },
           request: userText,
         }),
       },

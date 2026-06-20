@@ -62,6 +62,74 @@ async function main() {
   await handleTelegramUpdate(config, state, update("привет как пользоваться тобой?", 101));
   assert.match(fake.messages.at(-1).text, /бот для поиска недвижимости/i);
 
+  subscriber.pendingAiFilters = {
+    sourceText: "квартиры и дома от 70 м2 до 130к, Аван",
+    summary: "Квартиры и дома от 70 м² до 130000 USD в Avan",
+    filters: {
+      ...subscriber.filters,
+      maxPriceUsd: 130000,
+      minAreaSqm: 70,
+      locations: ["Avan"],
+      categories: ["apartment", "house"],
+    },
+    createdAt: new Date().toISOString(),
+  };
+  config.aiFiltersEnabled = true;
+  config.openaiApiKey = "test-openai-key";
+  const originalFetch = global.fetch;
+  global.fetch = async (_url, init) => {
+    const requestBody = JSON.parse(init.body);
+    const userPayload = JSON.parse(requestBody.input.find((item) => item.role === "user").content);
+    assert.equal(userPayload.filterContext.source, "pending");
+    assert.equal(userPayload.currentFilters.maxPriceUsd, 130000);
+    assert.equal(userPayload.currentFilters.minAreaSqm, 70);
+    assert.deepEqual(userPayload.currentFilters.locations, ["Avan"]);
+    return {
+      ok: true,
+      json: async () => ({
+        status: "completed",
+        output_text: JSON.stringify({
+          action: "update",
+          confidence: 0.9,
+          summary: "Добавить Zovuni к уже выбранным районам",
+          reply: "",
+          clear: [],
+          patch: {
+            minPriceUsd: null,
+            maxPriceUsd: null,
+            minRooms: null,
+            maxRooms: null,
+            minAreaSqm: null,
+            maxAreaSqm: null,
+            minLandSqm: null,
+            maxLandSqm: null,
+            maxPricePerSqm: null,
+            minFloor: null,
+            maxFloor: null,
+            maxDistanceMinutes: null,
+            minQualityScore: null,
+            locations: ["Zovuni"],
+            categories: null,
+            elevator: "keep",
+            condition: "keep",
+            keywords: null,
+            excludeKeywords: null,
+          },
+        }),
+      }),
+    };
+  };
+  try {
+    await handleTelegramUpdate(config, state, update("Зовуни добавь", 101));
+  } finally {
+    global.fetch = originalFetch;
+    config.aiFiltersEnabled = false;
+    config.openaiApiKey = "";
+  }
+  assert.equal(subscriber.pendingAiFilters.filters.maxPriceUsd, 130000);
+  assert.equal(subscriber.pendingAiFilters.filters.minAreaSqm, 70);
+  assert.deepEqual(subscriber.pendingAiFilters.filters.locations, ["Avan", "Zovuni"]);
+
   let manualScanCount = 0;
   const hooks = { scanNow: () => { manualScanCount += 1; } };
   await handleTelegramUpdate(config, state, update("/scan", 101), hooks);
