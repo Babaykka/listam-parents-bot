@@ -285,4 +285,10 @@ async function scanListAm(config, logger = console) {
 
 module.exports = {
   scanListAm,
+  __test: {
+    parseItem,
+    parsePrice,
+    parseLocation,
+    qualityScore,
+  },
 };

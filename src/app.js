@@ -1,8 +1,15 @@
 const http = require("http");
 const { loadConfig } = require("./config");
 const { scanListAm } = require("./listam");
-const { activeSubscribers, readState, writeState } = require("./state");
-const { configureTelegram, handleTelegramUpdate, notifySubscribers, pollTelegramOnce, sendMessage } = require("./telegram");
+const { activeSubscribers, deactivateSubscriber, readState, writeState } = require("./state");
+const {
+  configureTelegram,
+  handleTelegramUpdate,
+  isPermanentTelegramDeliveryError,
+  notifySubscribers,
+  pollTelegramOnce,
+  sendMessage,
+} = require("./telegram");
 
 const config = loadConfig();
 let state = readState(config);
@@ -11,14 +18,17 @@ let server = null;
 let nextScanTimer = null;
 let telegramPollTimer = null;
 
-const RELEASE_NOTICE_ID = "2026-06-20-fast-smart-scans";
+const RELEASE_NOTICE_ID = "2026-06-20-full-test-hardening";
 const RELEASE_NOTICE_TEXT = [
   "<b>Обновление бота</b>",
-  "Я ускорил мониторинг: в нормальном режиме теперь проверяю List.am каждые 5 минут.",
+  "Я проверил бота под нагрузкой и сделал уведомления надежнее.",
   "",
-  "Если List.am включает страницу проверки, я автоматически перехожу в бережный режим и делаю паузу подольше. Так меньше риск усилить блокировку, а состояние всегда видно в /status.",
+  "Что изменилось:",
+  "- обычно я проверяю новые объявления каждые 5 минут;",
+  "- если List.am временно просит проверку браузера, я сам подожду и попробую снова;",
+  "- если Telegram перестал принимать сообщения в какой-то чат, остальные пользователи продолжат получать уведомления.",
   "",
-  "Уведомления о новых подходящих квартирах и домах приходят автоматически после успешного скана.",
+  "Ничего нажимать не нужно. Состояние бота всегда можно посмотреть через /status.",
 ].join("\n");
 
 function json(res, status, payload) {
@@ -204,9 +214,17 @@ function canSendScanIssueAlert(config, state) {
 
 async function sendToActiveSubscribers(config, state, text) {
   const recipients = activeSubscribers(state, config);
+  let changed = false;
   for (const subscriber of recipients) {
-    await sendMessage(config, subscriber.id, text).catch((error) => console.error(`[telegram] scan health alert failed: ${error.message}`));
+    await sendMessage(config, subscriber.id, text).catch((error) => {
+      console.error(`[telegram] scan health alert failed: ${error.message}`);
+      if (isPermanentTelegramDeliveryError(error)) {
+        deactivateSubscriber(state, subscriber.id);
+        changed = true;
+      }
+    });
   }
+  if (changed) writeState(config, state);
 }
 
 async function maybeNotifyScanHealth(config, state, blocked, result, previousBlockedStreak = 0) {
@@ -217,11 +235,11 @@ async function maybeNotifyScanHealth(config, state, blocked, result, previousBlo
       config,
       state,
       [
-        "<b>Монитор List.am временно не видит объявления</b>",
-        `Последние ${state.scanHealth.blockedStreak} скана подряд List.am отдаёт страницу проверки вместо объявлений.`,
-        "Бот живой, Telegram работает, но новые уведомления задержатся, пока сайт снова начнет отдавать объявления.",
+        "<b>List.am временно не отдаёт объявления</b>",
+        "Сайт показывает проверку браузера, поэтому новые варианты могут задержаться.",
+        "Бот работает и попробует снова автоматически. Ничего нажимать не нужно.",
         "",
-        "Проверить: /status",
+        "Состояние: /status",
       ].join("\n")
     );
     return;
@@ -230,7 +248,7 @@ async function maybeNotifyScanHealth(config, state, blocked, result, previousBlo
   if (!blocked && previousBlockedStreak > 0 && result.listings.length > 0) {
     state.scanHealth.lastRecoveryAlertAt = new Date().toISOString();
     writeState(config, state);
-    await sendToActiveSubscribers(config, state, "Монитор List.am снова видит объявления. Сканер восстановился.");
+    await sendToActiveSubscribers(config, state, "List.am снова отдаёт объявления. Я продолжил обычную проверку и пришлю новые подходящие варианты автоматически.");
   }
 }
 

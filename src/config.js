@@ -159,6 +159,8 @@ function loadConfig() {
     maxSeenIds: envNumber("MAX_SEEN_IDS", 30000),
     maxListingsCache: envNumber("MAX_LISTINGS_CACHE", 250),
     telegramBatchSize: envNumber("TELEGRAM_BATCH_SIZE", 6),
+    telegramSendDelayMs: envNumber("TELEGRAM_SEND_DELAY_MS", 80),
+    telegramRetryMaxSeconds: envNumber("TELEGRAM_RETRY_MAX_SECONDS", 3),
 
     categories: CATEGORIES.filter((category) => categoryIds.includes(category.id)),
     defaultLocations: DEFAULT_LOCATIONS,

@@ -59,6 +59,10 @@ services:
         value: "60"
       - key: TELEGRAM_BATCH_SIZE
         value: "6"
+      - key: TELEGRAM_SEND_DELAY_MS
+        value: "80"
+      - key: TELEGRAM_RETRY_MAX_SECONDS
+        value: "3"
       - key: SEND_INITIAL
         value: "false"
       - key: SCAN_ON_START

@@ -1,12 +1,29 @@
-const { activeSubscribers, deactivateSubscriber, defaultFilters, normalizeFilters, upsertSubscriber } = require("./state");
+const { activeSubscribers, deactivateSubscriber, defaultFilters, normalizeFilters, upsertSubscriber, writeState } = require("./state");
 const { parseFilterRequest } = require("./aiFilters");
-const { clamp, escapeHtml, normalizeText } = require("./utils");
+const { clamp, escapeHtml, normalizeText, sleep } = require("./utils");
+
+class TelegramApiError extends Error {
+  constructor(method, status, data) {
+    super(`Telegram ${method} failed: ${status} ${JSON.stringify(data)}`);
+    this.name = "TelegramApiError";
+    this.method = method;
+    this.status = status;
+    this.telegramCode = data?.error_code || null;
+    this.description = data?.description || "";
+    this.retryAfter = Number(data?.parameters?.retry_after || 0) || null;
+    this.response = data;
+  }
+}
 
 function apiUrl(config, method) {
   return `https://api.telegram.org/bot${config.telegramToken}/${method}`;
 }
 
 async function telegramApi(config, method, body = {}) {
+  if (typeof config.telegramApi === "function") {
+    return config.telegramApi(method, body, config);
+  }
+
   if (config.dryRun) {
     console.log(`[dry-run telegram api] ${method} ${JSON.stringify(body)}`);
     if (method === "getUpdates") return [];
@@ -15,16 +32,25 @@ async function telegramApi(config, method, body = {}) {
 
   if (!config.telegramToken) throw new Error("TELEGRAM_BOT_TOKEN is not set");
 
-  const response = await fetch(apiUrl(config, method), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const data = await response.json().catch(() => null);
-  if (!response.ok || !data?.ok) {
-    throw new Error(`Telegram ${method} failed: ${response.status} ${JSON.stringify(data)}`);
+  const maxRetrySeconds = Number(config.telegramRetryMaxSeconds ?? 3);
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const response = await fetch(apiUrl(config, method), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await response.json().catch(() => null);
+    if (response.ok && data?.ok) return data.result;
+
+    const error = new TelegramApiError(method, response.status, data);
+    if (attempt === 0 && error.status === 429 && error.retryAfter && error.retryAfter <= maxRetrySeconds) {
+      await sleep(error.retryAfter * 1000 + 250);
+      continue;
+    }
+    throw error;
   }
-  return data.result;
+
+  return null;
 }
 
 async function sendMessage(config, chatId, text, options = {}) {
@@ -33,13 +59,21 @@ async function sendMessage(config, chatId, text, options = {}) {
     return true;
   }
 
-  return telegramApi(config, "sendMessage", {
+  const result = await telegramApi(config, "sendMessage", {
     chat_id: chatId,
     text,
     parse_mode: "HTML",
     disable_web_page_preview: options.disablePreview ?? false,
     reply_markup: options.replyMarkup,
   });
+  if (Number(config.telegramSendDelayMs || 0) > 0) await sleep(Number(config.telegramSendDelayMs));
+  return result;
+}
+
+function isPermanentTelegramDeliveryError(error) {
+  const description = String(error?.description || error?.message || "").toLowerCase();
+  if (error?.telegramCode === 403) return true;
+  return error?.telegramCode === 400 && /chat not found|bot was blocked|user is deactivated|have no rights/.test(description);
 }
 
 async function sendChatAction(config, chatId, action = "typing") {
@@ -781,7 +815,7 @@ async function handleCommand(config, state, message, hooks = {}) {
       [
         "Тестовое уведомление доставлено.",
         "Если видишь это сообщение, Telegram и подписка работают.",
-        blocked ? `Важно: ${blocked} скана подряд List.am отдаёт страницу проверки вместо объявлений. Подробности: /status` : null,
+        blocked ? "Важно: List.am сейчас показывает проверку браузера, поэтому новые объявления могут задержаться. Подробности: /status" : null,
       ]
         .filter(Boolean)
         .join("\n")
@@ -1026,25 +1060,23 @@ async function handleCommand(config, state, message, hooks = {}) {
     const lastScanLooksBlocked =
       state.lastScan?.blocked ||
       (state.lastScan && !state.lastScan.error && Number(state.lastScan.scanned || 0) === 0 && Number(state.lastScan.skipped || 0) >= expectedPages);
-    let scannerLine = "Сканер: нет серии блокировок.";
+    let scannerLine = "List.am отвечает нормально.";
     if (blockedStreak) {
-      scannerLine = `Сканер: проблема ${blockedStreak} скана подряд, List.am отдаёт страницу проверки вместо объявлений.`;
+      scannerLine = "List.am сейчас показывает проверку браузера. Новые объявления могут задержаться, но бот попробует снова автоматически.";
     } else if (lastScanLooksBlocked) {
-      scannerLine = "Сканер: последний скан не получил объявления, похоже на страницу проверки List.am.";
+      scannerLine = "Последняя проверка не получила объявления. Похоже, List.am показал проверку браузера.";
     }
-    const lastBlockedLine = lastScanLooksBlocked ? "Последний скан не получил объявления из-за страницы проверки List.am." : null;
     const scheduleLine = blockedStreak
-      ? `Режим скана: бережный, следующий интервал около ${currentDelayMinutes} мин. В обычном режиме проверяю каждые ${config.scanIntervalMinutes} мин.`
-      : `Режим скана: быстрый, проверяю примерно каждые ${config.scanIntervalMinutes} мин.`;
+      ? `Следующая попытка примерно через ${currentDelayMinutes} мин. Когда сайт снова откроется, вернусь к проверке каждые ${config.scanIntervalMinutes} мин.`
+      : `Проверяю объявления примерно каждые ${config.scanIntervalMinutes} мин.`;
     await sendMessage(
       config,
       chat.id,
       [
-        `Монитор работает.`,
+        `Бот работает.`,
         `Telegram: доставка до этого чата работает.`,
         `Подписчиков: ${activeCount}`,
         scannerLine,
-        lastBlockedLine,
         scheduleLine,
         `Последний скан: ${escapeHtml(lastScan)}`,
         lastUserScan,
@@ -1073,7 +1105,7 @@ async function handleCommand(config, state, message, hooks = {}) {
     }
 
     state.lastUserScanAt = new Date(now).toISOString();
-    await sendMessage(config, chat.id, "Запускаю внеочередной скан. Если List.am отдаст страницу проверки вместо объявлений, это будет видно в /status.");
+    await sendMessage(config, chat.id, "Запускаю внеочередную проверку. Если List.am покажет проверку браузера, я сообщу об этом в /status.");
     Promise.resolve(hooks.scanNow?.()).catch((error) => console.error(`[telegram] manual scan failed: ${error.message}`));
     return true;
   }
@@ -1120,9 +1152,11 @@ async function notifySubscribers(config, state, newListings) {
   let matchedSubscribers = 0;
   let totalMatches = 0;
   let sentMessages = 0;
+  let deactivatedSubscribers = 0;
   console.log(`[telegram] notification pass: recipients ${recipients.length}, new listings ${newListings.length}`);
 
   for (const subscriber of recipients) {
+    if (subscriber.active === false) continue;
     subscriber.filters = normalizeFilters(config, subscriber.filters);
     const matches = newListings.filter((item) => matchesSubscriber(config, subscriber, item));
     if (matches.length === 0) continue;
@@ -1134,17 +1168,39 @@ async function notifySubscribers(config, state, newListings) {
         .then(() => {
           sentMessages += 1;
         })
-        .catch((error) => console.error(`[telegram] failed to send listing notification: ${error.message}`));
+        .catch((error) => {
+          console.error(`[telegram] failed to send listing notification: ${error.message}`);
+          if (isPermanentTelegramDeliveryError(error)) {
+            deactivateSubscriber(state, subscriber.id);
+            deactivatedSubscribers += 1;
+          }
+        });
+      if (subscriber.active === false) break;
     }
   }
 
-  console.log(`[telegram] notification pass done: matched subscribers ${matchedSubscribers}, matched listings ${totalMatches}, messages sent ${sentMessages}`);
+  if (deactivatedSubscribers > 0) writeState(config, state);
+
+  console.log(
+    `[telegram] notification pass done: matched subscribers ${matchedSubscribers}, matched listings ${totalMatches}, messages sent ${sentMessages}, deactivated ${deactivatedSubscribers}`
+  );
 }
 
 module.exports = {
+  TelegramApiError,
   configureTelegram,
   handleTelegramUpdate,
+  isPermanentTelegramDeliveryError,
   notifySubscribers,
   pollTelegramOnce,
   sendMessage,
+  __test: {
+    chunkListings,
+    filtersText,
+    matchesSubscriber,
+    matchingListings,
+    parseAreas,
+    parseRangeArg,
+    parseTypes,
+  },
 };

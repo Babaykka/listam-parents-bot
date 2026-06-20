@@ -6,7 +6,10 @@
   "main": "src/app.js",
   "scripts": {
     "start": "node src/app.js",
-    "check": "node --check src/*.js scripts/*.js"
+    "check": "node --check src/*.js scripts/*.js",
+    "test:full": "node scripts/full_bot_test.js",
+    "test:stress": "node scripts/stress_bot_test.js",
+    "test": "npm run check && npm run test:full && npm run test:stress"
   },
   "engines": {
     "node": ">=20"
