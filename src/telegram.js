@@ -1011,6 +1011,10 @@ async function handleCommand(config, state, message, hooks = {}) {
   if (command === "/status") {
     const activeCount = activeSubscribers(state, config).length;
     const blockedStreak = Number(state.scanHealth?.blockedStreak || 0);
+    const currentDelayMinutes =
+      blockedStreak > 0
+        ? Math.min(config.blockedScanMaxIntervalMinutes, Math.max(config.blockedScanIntervalMinutes, config.blockedScanIntervalMinutes * blockedStreak))
+        : config.scanIntervalMinutes;
     const lastScan = state.lastScan
       ? `${state.lastScan.at}: найдено ${state.lastScan.scanned}, новых ${state.lastScan.new}, пропущено страниц ${state.lastScan.skipped || 0}${
           state.lastScan.error ? `, ошибка: ${state.lastScan.error}` : ""
@@ -1029,6 +1033,9 @@ async function handleCommand(config, state, message, hooks = {}) {
       scannerLine = "Сканер: последний скан не получил объявления, похоже на страницу проверки List.am.";
     }
     const lastBlockedLine = lastScanLooksBlocked ? "Последний скан не получил объявления из-за страницы проверки List.am." : null;
+    const scheduleLine = blockedStreak
+      ? `Режим скана: бережный, следующий интервал около ${currentDelayMinutes} мин. В обычном режиме проверяю каждые ${config.scanIntervalMinutes} мин.`
+      : `Режим скана: быстрый, проверяю примерно каждые ${config.scanIntervalMinutes} мин.`;
     await sendMessage(
       config,
       chat.id,
@@ -1038,6 +1045,7 @@ async function handleCommand(config, state, message, hooks = {}) {
         `Подписчиков: ${activeCount}`,
         scannerLine,
         lastBlockedLine,
+        scheduleLine,
         `Последний скан: ${escapeHtml(lastScan)}`,
         lastUserScan,
         `Следующий скан: ${escapeHtml(nextScan)}`,

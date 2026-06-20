@@ -52,7 +52,11 @@ services:
       - key: USER_SCAN_COOLDOWN_MINUTES
         value: "10"
       - key: POLL_INTERVAL_MINUTES
-        value: "20"
+        value: "5"
+      - key: BLOCKED_POLL_INTERVAL_MINUTES
+        value: "15"
+      - key: BLOCKED_POLL_MAX_INTERVAL_MINUTES
+        value: "60"
       - key: TELEGRAM_BATCH_SIZE
         value: "6"
       - key: SEND_INITIAL

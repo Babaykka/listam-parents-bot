@@ -18,6 +18,7 @@ function defaultState() {
       lastIssueAlertAt: null,
       lastRecoveryAlertAt: null,
     },
+    sentReleaseNotices: {},
   };
 }
 

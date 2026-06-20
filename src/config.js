@@ -116,6 +116,9 @@ function loadConfig() {
 
   const dataDir = process.env.DATA_DIR || path.join(ROOT_DIR, "data");
   const minQualityScore = envNumber("MIN_QUALITY_SCORE", envNumber("MIN_PARENT_SCORE", 0));
+  const scanIntervalMinutes = envNumber("POLL_INTERVAL_MINUTES", 5);
+  const blockedScanIntervalMinutes = envNumber("BLOCKED_POLL_INTERVAL_MINUTES", Math.max(15, scanIntervalMinutes));
+  const blockedScanMaxIntervalMinutes = envNumber("BLOCKED_POLL_MAX_INTERVAL_MINUTES", Math.max(60, blockedScanIntervalMinutes));
 
   return {
     rootDir: ROOT_DIR,
@@ -137,7 +140,9 @@ function loadConfig() {
     minQualityScore,
     minParentScore: minQualityScore,
     scanOnStart: envBool("SCAN_ON_START", true),
-    scanIntervalMinutes: envNumber("POLL_INTERVAL_MINUTES", 20),
+    scanIntervalMinutes,
+    blockedScanIntervalMinutes,
+    blockedScanMaxIntervalMinutes,
     scanPagesPerCategory: envNumber("LISTAM_PAGES_PER_CATEGORY", 3),
     scanPageWaitSeconds: envNumber("LISTAM_PAGE_WAIT_SECONDS", 60),
     challengeWaitSeconds: envNumber("LISTAM_CHALLENGE_MAX_SECONDS", 45),

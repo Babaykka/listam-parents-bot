@@ -11,6 +11,16 @@ let server = null;
 let nextScanTimer = null;
 let telegramPollTimer = null;
 
+const RELEASE_NOTICE_ID = "2026-06-20-fast-smart-scans";
+const RELEASE_NOTICE_TEXT = [
+  "<b>Обновление бота</b>",
+  "Я ускорил мониторинг: в нормальном режиме теперь проверяю List.am каждые 5 минут.",
+  "",
+  "Если List.am включает страницу проверки, я автоматически перехожу в бережный режим и делаю паузу подольше. Так меньше риск усилить блокировку, а состояние всегда видно в /status.",
+  "",
+  "Уведомления о новых подходящих квартирах и домах приходят автоматически после успешного скана.",
+].join("\n");
+
 function json(res, status, payload) {
   const body = JSON.stringify(payload, null, 2);
   res.writeHead(status, {
@@ -52,8 +62,27 @@ function healthPayload() {
     scanRunning,
     lastScan: state.lastScan,
     scanHealth: state.scanHealth || null,
+    scanSchedule: scanSchedulePayload(),
     nextScanAt: state.nextScanAt,
     publicUrl: config.publicUrl || null,
+  };
+}
+
+function currentScanDelayMinutes() {
+  const blockedStreak = Number(state.scanHealth?.blockedStreak || 0);
+  if (blockedStreak <= 0) return config.scanIntervalMinutes;
+  const backoffMinutes = config.blockedScanIntervalMinutes * blockedStreak;
+  return Math.min(config.blockedScanMaxIntervalMinutes, Math.max(config.blockedScanIntervalMinutes, backoffMinutes));
+}
+
+function scanSchedulePayload() {
+  const blockedStreak = Number(state.scanHealth?.blockedStreak || 0);
+  return {
+    mode: blockedStreak > 0 ? "backoff" : "normal",
+    currentDelayMinutes: currentScanDelayMinutes(),
+    normalIntervalMinutes: config.scanIntervalMinutes,
+    blockedIntervalMinutes: config.blockedScanIntervalMinutes,
+    blockedMaxIntervalMinutes: config.blockedScanMaxIntervalMinutes,
   };
 }
 
@@ -97,7 +126,6 @@ async function runScanCycle(reason = "schedule") {
     const result = await scanListAm(config);
     const allSeen = new Set([...(state.seenIds || []), ...result.listings.map((item) => item.id)]);
     const newListings = result.listings.filter((item) => !oldSeen.has(item.id));
-    const subscribers = activeSubscribers(state, config);
     const expectedPages = config.categories.length * config.scanPagesPerCategory;
     const challengeBlocked =
       result.listings.length === 0 &&
@@ -125,8 +153,8 @@ async function runScanCycle(reason = "schedule") {
     );
 
     if (newListings.length > 0) {
-      if (!config.sendInitial && oldSeen.size === 0 && subscribers.length === 0) {
-        console.log("[scan] first run initialized seen ids without sending old listings because there are no subscribers");
+      if (!config.sendInitial && oldSeen.size === 0) {
+        console.log(`[scan] first successful run initialized ${newListings.length} seen ids without sending old listings`);
       } else {
         await notifySubscribers(config, state, newListings);
       }
@@ -206,7 +234,7 @@ async function maybeNotifyScanHealth(config, state, blocked, result, previousBlo
   }
 }
 
-function scheduleNextScan(delayMs = config.scanIntervalMinutes * 60 * 1000) {
+function scheduleNextScan(delayMs = currentScanDelayMinutes() * 60 * 1000) {
   if (nextScanTimer) clearTimeout(nextScanTimer);
   state.nextScanAt = new Date(Date.now() + delayMs).toISOString();
   writeState(config, state);
@@ -214,6 +242,25 @@ function scheduleNextScan(delayMs = config.scanIntervalMinutes * 60 * 1000) {
     await runScanCycle("schedule");
     scheduleNextScan();
   }, delayMs);
+}
+
+async function maybeSendReleaseNotice() {
+  state.sentReleaseNotices ||= {};
+  if (state.sentReleaseNotices[RELEASE_NOTICE_ID]) return;
+
+  const recipients = activeSubscribers(state, config);
+  if (recipients.length === 0) {
+    console.log("[notice] no subscribers for release notice");
+    return;
+  }
+
+  await sendToActiveSubscribers(config, state, RELEASE_NOTICE_TEXT);
+  state.sentReleaseNotices[RELEASE_NOTICE_ID] = {
+    at: new Date().toISOString(),
+    recipients: recipients.length,
+  };
+  writeState(config, state);
+  console.log(`[notice] sent release notice ${RELEASE_NOTICE_ID} to ${recipients.length} subscribers`);
 }
 
 async function handleWebhook(req, res) {
@@ -277,6 +324,7 @@ async function start() {
   server = createServer();
   await new Promise((resolve) => server.listen(config.port, "0.0.0.0", resolve));
   console.log(`[http] listening on 0.0.0.0:${config.port}`);
+  setTimeout(() => maybeSendReleaseNotice().catch((error) => console.error(`[notice] release notice failed: ${error.message}`)), 1000);
 
   if (config.scanOnStart) {
     setTimeout(() => runScanCycle("startup").catch((error) => console.error(error)), 1500);
