@@ -2,6 +2,21 @@ const { activeSubscribers, deactivateSubscriber, defaultFilters, normalizeFilter
 const { parseFilterRequest } = require("./aiFilters");
 const { clamp, escapeHtml, normalizeText, sleep } = require("./utils");
 
+const YEREVAN_DATE_FORMATTER = new Intl.DateTimeFormat("ru-RU", {
+  timeZone: "Asia/Yerevan",
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+const YEREVAN_DATE_ONLY_FORMATTER = new Intl.DateTimeFormat("ru-RU", {
+  timeZone: "Asia/Yerevan",
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+});
+
 class TelegramApiError extends Error {
   constructor(method, status, data) {
     super(`Telegram ${method} failed: ${status} ${JSON.stringify(data)}`);
@@ -149,9 +164,37 @@ function listingUrl(item) {
   return item.url || "https://www.list.am/";
 }
 
+function formatYerevanDateTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return YEREVAN_DATE_FORMATTER.format(date);
+}
+
+function formatYerevanDate(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return YEREVAN_DATE_ONLY_FORMATTER.format(date);
+}
+
+function listingDateDetail(item) {
+  if (item.publishedAt) {
+    const value =
+      item.publishedAtPrecision === "date"
+        ? formatYerevanDate(item.publishedAt)
+        : formatYerevanDateTime(item.publishedAt);
+    if (value) return `опубликовано ${value}`;
+  }
+
+  const fallback = item.discoveredAt || item.scannedAt;
+  if (!fallback) return null;
+  const value = formatYerevanDateTime(fallback);
+  return value ? `найдено ботом ${value}` : null;
+}
+
 function listingLine(item) {
   const details = [
     item.location || "локация не распознана",
+    listingDateDetail(item),
     item.minutesToCenter !== null && item.minutesToCenter !== undefined ? `${item.minutesToCenter} мин до центра` : null,
     item.areaSqm ? `${item.areaSqm} м²` : null,
     item.landSqm ? `участок ${item.landSqm} м²` : null,
@@ -1245,6 +1288,7 @@ module.exports = {
     filtersText,
     listingLine,
     listingUrl,
+    listingDateDetail,
     matchesSubscriber,
     matchingListings,
     parseAreas,

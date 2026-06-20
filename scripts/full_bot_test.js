@@ -24,7 +24,7 @@ async function main() {
   const parsed = listamTest.parseItem(
     {
       href: "https://www.list.am/item/987654",
-      text: "$95,000 2 room apartment, 70 sq.m., 2/9 floor Elevator Available major renovation Avan, Yerevan",
+      text: "$95,000 2 room apartment, 70 sq.m., 2/9 floor Elevator Available major renovation Avan, Yerevan Posted Today 14:30",
     },
     config.categories.find((category) => category.key === "apartment"),
     config
@@ -37,8 +37,20 @@ async function main() {
   assert.equal(parsed.location, "Avan");
   assert.equal(parsed.condition, "ready");
   assert.equal(parsed.url, "https://www.list.am/item/987654");
+  assert(parsed.publishedAt, "publishedAt should be parsed from listing text");
+  assert.equal(parsed.publishedAtPrecision, "datetime");
+  const publishedWithTime = listamTest.parsePublishedDate("Posted Today 14:30", new Date("2026-06-20T08:00:00.000Z"));
+  assert.deepEqual(publishedWithTime, { iso: "2026-06-20T10:30:00.000Z", precision: "datetime" });
+  const publishedDateOnly = listamTest.parsePublishedDate("Posted 20 Jun 2026", new Date("2026-06-20T08:00:00.000Z"));
+  assert.deepEqual(publishedDateOnly, { iso: "2026-06-19T20:00:00.000Z", precision: "date" });
   assert.equal(telegramTest.listingUrl({ id: "123456", url: "https://www.list.am/en/en/item/123456" }), "https://www.list.am/item/123456");
   assert.match(telegramTest.listingLine({ ...listing(123456), url: "https://www.list.am/en/en/item/123456" }), /href="https:\/\/www\.list\.am\/item\/123456"/);
+  assert.match(telegramTest.listingLine({ ...listing(123457), publishedAt: parsed.publishedAt }), /опубликовано/);
+  assert.equal(
+    telegramTest.listingDateDetail({ publishedAt: publishedDateOnly.iso, publishedAtPrecision: publishedDateOnly.precision }),
+    "опубликовано 20.06.2026"
+  );
+  assert.match(telegramTest.listingLine({ ...listing(123458), publishedAt: null }), /найдено ботом/);
 
   await handleTelegramUpdate(config, state, update("/start", 101));
   assert.equal(activeSubscribers(state, config).length, 1);

@@ -34,6 +34,90 @@ const PAGE_MARKERS = [
   "объявлен",
 ];
 
+const MONTH_INDEX = {
+  jan: 0,
+  january: 0,
+  "янв": 0,
+  "январь": 0,
+  "января": 0,
+  feb: 1,
+  february: 1,
+  "фев": 1,
+  "февраль": 1,
+  "февраля": 1,
+  mar: 2,
+  march: 2,
+  "мар": 2,
+  "март": 2,
+  "марта": 2,
+  apr: 3,
+  april: 3,
+  "апр": 3,
+  "апрель": 3,
+  "апреля": 3,
+  may: 4,
+  "май": 4,
+  "мая": 4,
+  jun: 5,
+  june: 5,
+  "июн": 5,
+  "июнь": 5,
+  "июня": 5,
+  jul: 6,
+  july: 6,
+  "июл": 6,
+  "июль": 6,
+  "июля": 6,
+  aug: 7,
+  august: 7,
+  "авг": 7,
+  "август": 7,
+  "августа": 7,
+  sep: 8,
+  sept: 8,
+  september: 8,
+  "сен": 8,
+  "сент": 8,
+  "сентябрь": 8,
+  "сентября": 8,
+  oct: 9,
+  october: 9,
+  "окт": 9,
+  "октябрь": 9,
+  "октября": 9,
+  nov: 10,
+  november: 10,
+  "ноя": 10,
+  "ноябрь": 10,
+  "ноября": 10,
+  dec: 11,
+  december: 11,
+  "дек": 11,
+  "декабрь": 11,
+  "декабря": 11,
+};
+
+const MONTH_PATTERN =
+  "jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|" +
+  "sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|янв(?:арь|аря)?|" +
+  "фев(?:раль|раля)?|мар(?:т|та)?|апр(?:ель|еля)?|ма[йя]|июн(?:ь|я)?|июл(?:ь|я)?|" +
+  "авг(?:уст|уста)?|сен(?:т(?:ябрь|ября)?)?|окт(?:ябрь|ября)?|ноя(?:брь|бря)?|дек(?:абрь|абря)?";
+const DAY_MONTH_PATTERN = new RegExp(
+  `\\b(\\d{1,2})\\s+(${MONTH_PATTERN}),?\\s*(20\\d{2})?(?:[, ]+(\\d{1,2}):(\\d{2}))?\\b`,
+  "i"
+);
+const MONTH_DAY_PATTERN = new RegExp(
+  `\\b(${MONTH_PATTERN})\\s+(\\d{1,2}),?\\s*(20\\d{2})?(?:[, ]+(\\d{1,2}):(\\d{2}))?\\b`,
+  "i"
+);
+const YEREVAN_OFFSET_MINUTES = 4 * 60;
+const YEREVAN_DAY_FORMATTER = new Intl.DateTimeFormat("en-US", {
+  timeZone: "Asia/Yerevan",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
 function parsePrice(text) {
   const normalized = normalizeText(text);
   const usd = normalized.match(/^\$([\d,]+)/);
@@ -87,6 +171,62 @@ function parseRooms(text) {
 function parseFloor(text) {
   const floor = text.match(/(\d+)\/(\d+)\s*floor/);
   return floor ? { current: Number(floor[1]), total: Number(floor[2]), label: `${floor[1]}/${floor[2]}` } : null;
+}
+
+function ymdInYerevan(date) {
+  const parts = Object.fromEntries(YEREVAN_DAY_FORMATTER.formatToParts(date).map((part) => [part.type, part.value]));
+  return { year: Number(parts.year), month: Number(parts.month) - 1, day: Number(parts.day) };
+}
+
+function shiftYmd({ year, month, day }, days) {
+  const date = new Date(Date.UTC(year, month, day + days));
+  return { year: date.getUTCFullYear(), month: date.getUTCMonth(), day: date.getUTCDate() };
+}
+
+function yerevanLocalDate(year, month, day, hour, minute) {
+  const hasTime = hour !== undefined && minute !== undefined;
+  const localHour = hasTime ? Number(hour) : 0;
+  const localMinute = hasTime ? Number(minute) : 0;
+  return {
+    iso: new Date(Date.UTC(year, month, day, localHour, localMinute) - YEREVAN_OFFSET_MINUTES * 60000).toISOString(),
+    precision: hasTime ? "datetime" : "date",
+  };
+}
+
+function monthIndex(value) {
+  return MONTH_INDEX[String(value || "").toLowerCase()];
+}
+
+function parsePublishedDate(text, now = new Date()) {
+  const normalized = normalizeText(text);
+  let match = normalized.match(/\b(today|yesterday|сегодня|вчера)(?:[, ]+(\d{1,2}):(\d{2}))?\b/i);
+  if (match) {
+    const ymd = shiftYmd(ymdInYerevan(now), /yesterday|вчера/i.test(match[1]) ? -1 : 0);
+    return yerevanLocalDate(ymd.year, ymd.month, ymd.day, match[2], match[3]);
+  }
+
+  match = normalized.match(DAY_MONTH_PATTERN);
+  if (match) {
+    const month = monthIndex(match[2]);
+    const year = Number(match[3] || ymdInYerevan(now).year);
+    if (month !== undefined) return yerevanLocalDate(year, month, Number(match[1]), match[4], match[5]);
+  }
+
+  match = normalized.match(MONTH_DAY_PATTERN);
+  if (match) {
+    const month = monthIndex(match[1]);
+    const year = Number(match[3] || ymdInYerevan(now).year);
+    if (month !== undefined) return yerevanLocalDate(year, month, Number(match[2]), match[4], match[5]);
+  }
+
+  match = normalized.match(/\b(\d{1,2})[.-](\d{1,2})[.-](20\d{2})(?:[, ]+(\d{1,2}):(\d{2}))?\b/);
+  if (match) return yerevanLocalDate(Number(match[3]), Number(match[2]) - 1, Number(match[1]), match[4], match[5]);
+
+  return null;
+}
+
+function parsePublishedAt(text, now = new Date()) {
+  return parsePublishedDate(text, now)?.iso || null;
 }
 
 function parseElevator(text) {
@@ -165,6 +305,7 @@ function parseItem(raw, category, config) {
   if (location && !(location in config.minutesToCenter)) return null;
 
   const area = parseArea(text);
+  const published = parsePublishedDate(text);
   const item = {
     id,
     kind: category.label,
@@ -182,6 +323,8 @@ function parseItem(raw, category, config) {
     minutesToCenter: location ? config.minutesToCenter[location] : null,
     elevator: parseElevator(text),
     condition: parseCondition(text),
+    publishedAt: published?.iso || null,
+    publishedAtPrecision: published?.precision || null,
     rawText: text,
     scannedAt: new Date().toISOString(),
   };
@@ -287,6 +430,8 @@ module.exports = {
   scanListAm,
   __test: {
     parseItem,
+    parsePublishedDate,
+    parsePublishedAt,
     parsePrice,
     parseLocation,
     qualityScore,
