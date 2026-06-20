@@ -277,6 +277,7 @@ function commandKeyboard() {
       [{ text: "/houses" }, { text: "/apartments" }],
       [{ text: "/filters" }, { text: "/status" }],
       [{ text: "/test" }, { text: "/setup" }],
+      [{ text: "/scan" }, { text: "/help" }],
     ],
     resize_keyboard: true,
   };
@@ -296,6 +297,7 @@ function helpText(config, state) {
     `/apartments - квартиры по твоим фильтрам`,
     `/filters - показать фильтры`,
     `/test - проверить доставку Telegram`,
+    `/scan - запустить внеочередной скан`,
     `/ai 2-3 комнаты до 110к - настроить текстом`,
     `/apply - применить AI-настройку`,
     `/cancel - отменить AI-настройку`,
@@ -531,6 +533,7 @@ async function configureTelegram(config, state) {
       { command: "apartments", description: "Квартиры по фильтрам" },
       { command: "filters", description: "Мои фильтры" },
       { command: "test", description: "Проверить доставку" },
+      { command: "scan", description: "Запустить скан" },
       { command: "ai", description: "Настроить фильтры текстом" },
       { command: "apply", description: "Применить AI-настройку" },
       { command: "cancel", description: "Отменить AI-настройку" },
@@ -870,6 +873,7 @@ async function handleCommand(config, state, message, hooks = {}) {
         }`
       : "скана еще не было";
     const nextScan = state.nextScanAt ? state.nextScanAt : "планируется";
+    const lastUserScan = state.lastUserScanAt ? `Последний ручной запуск: ${state.lastUserScanAt}` : null;
     const scannerLine = blockedStreak
       ? `Сканер: проблема ${blockedStreak} скана подряд, List.am отдаёт страницу проверки вместо объявлений.`
       : "Сканер: нет серии блокировок.";
@@ -884,6 +888,7 @@ async function handleCommand(config, state, message, hooks = {}) {
         scannerLine,
         lastBlockedLine,
         `Последний скан: ${escapeHtml(lastScan)}`,
+        lastUserScan,
         `Следующий скан: ${escapeHtml(nextScan)}`,
       ]
         .filter(Boolean)
@@ -893,12 +898,24 @@ async function handleCommand(config, state, message, hooks = {}) {
   }
 
   if (command === "/scan") {
-    if (!config.adminChatIds.has(String(chat.id))) {
-      await sendMessage(config, chat.id, "Эта команда доступна только администратору.");
+    const isAdmin = config.adminChatIds.has(String(chat.id));
+    if (!isAdmin && !config.userScanEnabled) {
+      await sendMessage(config, chat.id, "Внеочередной скан сейчас выключен. Статус: /status");
       return true;
     }
-    await sendMessage(config, chat.id, "Запускаю внеочередной скан.");
-    await hooks.scanNow?.();
+
+    const now = Date.now();
+    const lastUserScanAt = Date.parse(state.lastUserScanAt || "");
+    const cooldownMs = config.userScanCooldownMinutes * 60 * 1000;
+    if (!isAdmin && Number.isFinite(lastUserScanAt) && now - lastUserScanAt < cooldownMs) {
+      const waitMinutes = Math.max(1, Math.ceil((cooldownMs - (now - lastUserScanAt)) / 60000));
+      await sendMessage(config, chat.id, `Скан уже запускали недавно. Следующий ручной запуск будет доступен примерно через ${waitMinutes} мин. Статус: /status`);
+      return true;
+    }
+
+    state.lastUserScanAt = new Date(now).toISOString();
+    await sendMessage(config, chat.id, "Запускаю внеочередной скан. Если List.am отдаст страницу проверки вместо объявлений, это будет видно в /status.");
+    Promise.resolve(hooks.scanNow?.()).catch((error) => console.error(`[telegram] manual scan failed: ${error.message}`));
     return true;
   }
 

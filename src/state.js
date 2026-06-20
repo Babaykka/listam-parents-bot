@@ -11,6 +11,7 @@ function defaultState() {
     telegramUpdateOffset: 0,
     lastScan: null,
     nextScanAt: null,
+    lastUserScanAt: null,
     bot: null,
     scanHealth: {
       blockedStreak: 0,

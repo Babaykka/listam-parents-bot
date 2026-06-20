@@ -144,6 +144,8 @@ function loadConfig() {
     scanIssueAlerts: envBool("SCAN_ISSUE_ALERTS", true),
     scanIssueAlertAfter: envNumber("SCAN_ISSUE_ALERT_AFTER", 3),
     scanIssueAlertCooldownMinutes: envNumber("SCAN_ISSUE_ALERT_COOLDOWN_MINUTES", 360),
+    userScanEnabled: envBool("USER_SCAN_ENABLED", true),
+    userScanCooldownMinutes: envNumber("USER_SCAN_COOLDOWN_MINUTES", 10),
     navigationTimeoutMs: envNumber("NAVIGATION_TIMEOUT_MS", 75000),
     delayBetweenPagesMs: envNumber("DELAY_BETWEEN_PAGES_MS", 2500),
     headless: !envBool("LISTAM_SHOW_BROWSER", false),
