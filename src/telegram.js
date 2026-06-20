@@ -302,6 +302,31 @@ function matchingListings(config, subscriber, listings, limit = 10, mode = "late
   return filtered.slice(0, limit);
 }
 
+function naturalListingRequest(text) {
+  const lower = normalizeText(text).toLowerCase();
+  const wantsDelivery = /(покажи|показать|отправь|отправить|пришли|скинь|дай|выведи|хочу\s+посмотреть|что\s+есть|show|send|list)/i.test(lower);
+  const hasHouse = /\b(дом|дома|house|houses|таун)/i.test(lower);
+  const hasApartment = /(квартир|apartment|apartments|flat|flats)/i.test(lower);
+  const asksListings = /(объявлен|публикац|вариант|листинг|предложен|недвижим)/i.test(lower) || hasHouse || hasApartment;
+  const asksFresh = /(нов|свеж|последн|актуальн|latest|new|fresh)/i.test(lower);
+  const hasDetailedCriteria = /(\$|€|֏|\b\d+\s*(?:к|k|тыс|м²|m2|sqm|комнат|мин|этаж)|\b(?:до|от)\s*\d|ремонт|лифт|участ|центр|агент)/i.test(lower);
+
+  if (!(wantsDelivery && (asksListings || asksFresh)) && !(asksListings && asksFresh)) return null;
+  if (hasDetailedCriteria) return null;
+
+  const categories = hasHouse && !hasApartment ? ["house"] : hasApartment && !hasHouse ? ["apartment"] : null;
+  const wantsAll = /\b(все|всё|all)\b/i.test(lower);
+  const wantsTop = /(лучшие|выгод|топ|top|best)/i.test(lower);
+  const shouldScan = /(нов|свеж|актуальн|проверь|проверить|обнов|скан|scan|сейчас|найди|latest|new|fresh)/i.test(lower);
+
+  return {
+    categories,
+    limit: wantsAll ? 20 : 8,
+    mode: wantsTop ? "top" : "latest",
+    shouldScan,
+  };
+}
+
 async function sendSavedMatches(config, state, subscriber, chatId, options = {}) {
   const limit = options.limit || 6;
   const mode = options.mode || "latest";
@@ -312,6 +337,79 @@ async function sendSavedMatches(config, state, subscriber, chatId, options = {})
   for (const chunk of chunkListings(title, listings, config)) {
     await sendMessage(config, chatId, chunk);
   }
+  return true;
+}
+
+function scopedSubscriberForCategories(config, subscriber, categories) {
+  if (!categories?.length) return subscriber;
+  return {
+    ...subscriber,
+    filters: normalizeFilters(config, {
+      ...subscriber.filters,
+      categories,
+    }),
+  };
+}
+
+async function triggerManualScan(config, state, chatId, hooks = {}, options = {}) {
+  const isAdmin = config.adminChatIds.has(String(chatId));
+  if (!isAdmin && !config.userScanEnabled) {
+    await sendMessage(config, chatId, "Внеочередная проверка сейчас выключена. Статус: /status");
+    return true;
+  }
+
+  const now = Date.now();
+  const lastUserScanAt = Date.parse(state.lastUserScanAt || "");
+  const cooldownMs = config.userScanCooldownMinutes * 60 * 1000;
+  if (!isAdmin && Number.isFinite(lastUserScanAt) && now - lastUserScanAt < cooldownMs) {
+    const waitMinutes = Math.max(1, Math.ceil((cooldownMs - (now - lastUserScanAt)) / 60000));
+    await sendMessage(config, chatId, `Скан уже запускали недавно. Следующий ручной запуск будет доступен примерно через ${waitMinutes} мин. Статус: /status`);
+    return true;
+  }
+
+  state.lastUserScanAt = new Date(now).toISOString();
+  await sendMessage(
+    config,
+    chatId,
+    options.message || "Запускаю внеочередную проверку. Если List.am покажет проверку браузера, я сообщу об этом в /status."
+  );
+  Promise.resolve(hooks.scanNow?.()).catch((error) => console.error(`[telegram] manual scan failed: ${error.message}`));
+  return true;
+}
+
+async function handleNaturalListingRequest(config, state, subscriber, chat, text, hooks = {}) {
+  const request = naturalListingRequest(text);
+  if (!request) return false;
+
+  const scopedSubscriber = scopedSubscriberForCategories(config, subscriber, request.categories);
+  const title =
+    request.mode === "top"
+      ? "Лучшие подходящие варианты"
+      : request.categories?.[0] === "house"
+        ? "Последние подходящие дома"
+        : request.categories?.[0] === "apartment"
+          ? "Последние подходящие квартиры"
+          : "Последние подходящие варианты";
+  const sent = await sendSavedMatches(config, state, scopedSubscriber, chat.id, {
+    limit: request.limit,
+    mode: request.mode,
+    title,
+  });
+
+  if (!sent) {
+    await sendMessage(
+      config,
+      chat.id,
+      "В сохраненной базе пока нет объявлений под эти фильтры. Я могу проверить List.am сейчас и пришлю новые подходящие варианты автоматически."
+    );
+  }
+
+  if (request.shouldScan) {
+    await triggerManualScan(config, state, chat.id, hooks, {
+      message: "Параллельно запускаю проверку List.am. Если появятся новые подходящие объявления, пришлю их автоматически.",
+    });
+  }
+
   return true;
 }
 
@@ -1102,16 +1200,11 @@ async function handleCommand(config, state, message, hooks = {}) {
   if (command === "/latest" || command === "/top" || command === "/houses" || command === "/apartments") {
     const limit = clamp(Math.round(parseNumberArg(args, 8)), 1, 20);
     const mode = command === "/top" ? "top" : "latest";
-    const scopedSubscriber =
-      command === "/houses" || command === "/apartments"
-        ? {
-            ...subscriber,
-            filters: normalizeFilters(config, {
-              ...subscriber.filters,
-              categories: [command === "/houses" ? "house" : "apartment"],
-            }),
-          }
-        : subscriber;
+    const scopedSubscriber = scopedSubscriberForCategories(
+      config,
+      subscriber,
+      command === "/houses" || command === "/apartments" ? [command === "/houses" ? "house" : "apartment"] : null
+    );
     const listings = matchingListings(config, scopedSubscriber, state.listings || [], limit, mode);
     if (listings.length === 0) {
       await sendMessage(config, chat.id, "Пока нет сохраненных объявлений под эти фильтры. Можно подождать следующий успешный скан или расширить фильтры через /filters.");
@@ -1178,25 +1271,7 @@ async function handleCommand(config, state, message, hooks = {}) {
   }
 
   if (command === "/scan") {
-    const isAdmin = config.adminChatIds.has(String(chat.id));
-    if (!isAdmin && !config.userScanEnabled) {
-      await sendMessage(config, chat.id, "Внеочередной скан сейчас выключен. Статус: /status");
-      return true;
-    }
-
-    const now = Date.now();
-    const lastUserScanAt = Date.parse(state.lastUserScanAt || "");
-    const cooldownMs = config.userScanCooldownMinutes * 60 * 1000;
-    if (!isAdmin && Number.isFinite(lastUserScanAt) && now - lastUserScanAt < cooldownMs) {
-      const waitMinutes = Math.max(1, Math.ceil((cooldownMs - (now - lastUserScanAt)) / 60000));
-      await sendMessage(config, chat.id, `Скан уже запускали недавно. Следующий ручной запуск будет доступен примерно через ${waitMinutes} мин. Статус: /status`);
-      return true;
-    }
-
-    state.lastUserScanAt = new Date(now).toISOString();
-    await sendMessage(config, chat.id, "Запускаю внеочередную проверку. Если List.am покажет проверку браузера, я сообщу об этом в /status.");
-    Promise.resolve(hooks.scanNow?.()).catch((error) => console.error(`[telegram] manual scan failed: ${error.message}`));
-    return true;
+    return triggerManualScan(config, state, chat.id, hooks);
   }
 
   if (command.startsWith("/")) {
@@ -1205,6 +1280,8 @@ async function handleCommand(config, state, message, hooks = {}) {
   }
 
   if (chat.type === "private") {
+    const handledListingRequest = await handleNaturalListingRequest(config, state, subscriber, chat, text, hooks);
+    if (handledListingRequest) return true;
     return proposeAiFilters(config, subscriber, chat.id, text);
   }
 

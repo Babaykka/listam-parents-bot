@@ -74,6 +74,22 @@ async function main() {
   assert.match(latestMessages, /Apartment in Avan/);
   assert.doesNotMatch(latestMessages, /House in Abovyan/);
 
+  state.lastUserScanAt = null;
+  let naturalScanCount = 0;
+  const beforeNaturalLatest = fake.messages.length;
+  await handleTelegramUpdate(config, state, update("отправь все новые публикации", 101), {
+    scanNow: () => {
+      naturalScanCount += 1;
+    },
+  });
+  const naturalLatestMessages = fake.messages.slice(beforeNaturalLatest).map((message) => message.text).join("\n");
+  assert.equal(naturalScanCount, 1);
+  assert.match(naturalLatestMessages, /Последние подходящие варианты/);
+  assert.match(naturalLatestMessages, /Apartment in Avan/);
+  assert.match(naturalLatestMessages, /Параллельно запускаю проверку List\.am/);
+  assert.doesNotMatch(naturalLatestMessages, /Я помогу настроить/);
+  state.lastUserScanAt = null;
+
   await handleTelegramUpdate(config, state, update("привет как пользоваться тобой?", 101));
   assert.match(fake.messages.at(-1).text, /бот для поиска недвижимости/i);
 
