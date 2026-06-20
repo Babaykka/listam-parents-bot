@@ -76,6 +76,7 @@ function listingLine(item) {
     item.location || "локация не распознана",
     item.minutesToCenter !== null && item.minutesToCenter !== undefined ? `${item.minutesToCenter} мин до центра` : null,
     item.areaSqm ? `${item.areaSqm} м²` : null,
+    item.landSqm ? `участок ${item.landSqm} м²` : null,
     item.rooms ? `${item.rooms}к` : null,
     item.floor?.label ? `${item.floor.label} эт.` : null,
     item.elevator === true ? "лифт" : item.elevator === false && item.floor?.current >= 3 ? "без лифта" : null,
@@ -126,6 +127,7 @@ function filtersText(config, rawFilters) {
     `Районы: ${escapeHtml(locations)}`,
     `Комнаты: ${rangeText(filters.minRooms, filters.maxRooms)}`,
     `Площадь: ${rangeText(filters.minAreaSqm, filters.maxAreaSqm, " м²")}`,
+    `Участок: ${rangeText(filters.minLandSqm, filters.maxLandSqm, " м²")}`,
     `Этаж: ${rangeText(filters.minFloor, filters.maxFloor)}`,
     `До центра: ${filters.maxDistanceMinutes ? `до ${filters.maxDistanceMinutes} мин` : "любой"}`,
     `Цена за м²: ${filters.maxPricePerSqm ? `до ${money(filters.maxPricePerSqm)}` : "любая"}`,
@@ -152,6 +154,8 @@ function matchesSubscriber(config, subscriber, item) {
   if (filters.maxRooms && (!item.rooms || item.rooms > filters.maxRooms)) return false;
   if (filters.minAreaSqm && (!item.areaSqm || item.areaSqm < filters.minAreaSqm)) return false;
   if (filters.maxAreaSqm && (!item.areaSqm || item.areaSqm > filters.maxAreaSqm)) return false;
+  if (filters.minLandSqm && (!item.landSqm || item.landSqm < filters.minLandSqm)) return false;
+  if (filters.maxLandSqm && (!item.landSqm || item.landSqm > filters.maxLandSqm)) return false;
   if (filters.maxPricePerSqm && (!item.pricePerSqm || item.pricePerSqm > filters.maxPricePerSqm)) return false;
   if (filters.minFloor && (!item.floor?.current || item.floor.current < filters.minFloor)) return false;
   if (filters.maxFloor && (!item.floor?.current || item.floor.current > filters.maxFloor)) return false;
@@ -175,6 +179,19 @@ function matchingListings(config, subscriber, listings, limit = 10, mode = "late
     filtered.sort((a, b) => String(b.discoveredAt || b.scannedAt).localeCompare(String(a.discoveredAt || a.scannedAt)));
   }
   return filtered.slice(0, limit);
+}
+
+async function sendSavedMatches(config, state, subscriber, chatId, options = {}) {
+  const limit = options.limit || 6;
+  const mode = options.mode || "latest";
+  const title = options.title || (mode === "top" ? "Лучшие сохраненные варианты" : "Сохраненные подходящие варианты");
+  const listings = matchingListings(config, subscriber, state.listings || [], limit, mode);
+  if (listings.length === 0) return false;
+
+  for (const chunk of chunkListings(title, listings, config)) {
+    await sendMessage(config, chatId, chunk);
+  }
+  return true;
 }
 
 function parseNumberArg(args, fallback) {
@@ -257,8 +274,9 @@ function commandKeyboard() {
   return {
     keyboard: [
       [{ text: "/latest" }, { text: "/top" }],
+      [{ text: "/houses" }, { text: "/apartments" }],
       [{ text: "/filters" }, { text: "/status" }],
-      [{ text: "/setup" }, { text: "/help" }],
+      [{ text: "/test" }, { text: "/setup" }],
     ],
     resize_keyboard: true,
   };
@@ -274,7 +292,10 @@ function helpText(config, state) {
     `/start - включить подписку`,
     `/latest - последние варианты`,
     `/top - лучшие по качеству`,
+    `/houses - дома по твоим фильтрам`,
+    `/apartments - квартиры по твоим фильтрам`,
     `/filters - показать фильтры`,
+    `/test - проверить доставку Telegram`,
     `/ai 2-3 комнаты до 110к - настроить текстом`,
     `/apply - применить AI-настройку`,
     `/cancel - отменить AI-настройку`,
@@ -285,6 +306,7 @@ function helpText(config, state) {
     `/budget 100000 - цена до суммы`,
     `/rooms 2-3 - комнаты`,
     `/area 50-100 - площадь`,
+    `/land 100-600 - участок для домов`,
     `/sqm 1600 - цена за м² до суммы`,
     `/floor 1-4 - этаж`,
     `/distance 25 - до центра не дальше минут`,
@@ -353,6 +375,9 @@ function clearFilterFields(config, filters, fields) {
     } else if (field === "area") {
       next.minAreaSqm = null;
       next.maxAreaSqm = null;
+    } else if (field === "land") {
+      next.minLandSqm = null;
+      next.maxLandSqm = null;
     } else if (field === "sqm") {
       next.maxPricePerSqm = null;
     } else if (field === "floor") {
@@ -404,6 +429,11 @@ function applyAiPatch(config, currentFilters, result) {
   const floor = orderedRange(patch.minFloor, patch.maxFloor);
   if (floor.min !== null && floor.min !== undefined) next.minFloor = floor.min;
   if (floor.max !== null && floor.max !== undefined) next.maxFloor = floor.max;
+
+  const land = orderedRange(patch.minLandSqm, patch.maxLandSqm);
+  if (land.min !== null && land.min !== undefined) next.minLandSqm = land.min;
+  if (land.max !== null && land.max !== undefined) next.maxLandSqm = land.max;
+  if (next.minLandSqm || next.maxLandSqm) next.categories = ["house"];
 
   if (Array.isArray(patch.locations)) next.locations = patch.locations;
   if (Array.isArray(patch.categories) && patch.categories.length) next.categories = patch.categories;
@@ -497,7 +527,10 @@ async function configureTelegram(config, state) {
       { command: "start", description: "Включить подписку" },
       { command: "latest", description: "Последние варианты" },
       { command: "top", description: "Лучшие по качеству" },
+      { command: "houses", description: "Дома по фильтрам" },
+      { command: "apartments", description: "Квартиры по фильтрам" },
       { command: "filters", description: "Мои фильтры" },
+      { command: "test", description: "Проверить доставку" },
       { command: "ai", description: "Настроить фильтры текстом" },
       { command: "apply", description: "Применить AI-настройку" },
       { command: "cancel", description: "Отменить AI-настройку" },
@@ -506,6 +539,7 @@ async function configureTelegram(config, state) {
       { command: "budget", description: "Бюджет до суммы" },
       { command: "rooms", description: "Комнаты" },
       { command: "area", description: "Площадь" },
+      { command: "land", description: "Участок для домов" },
       { command: "sqm", description: "Цена за м²" },
       { command: "floor", description: "Этаж" },
       { command: "distance", description: "Минут до центра" },
@@ -557,6 +591,10 @@ async function handleCommand(config, state, message, hooks = {}) {
       ["Подписка включена.", "Буду присылать новые объявления, которые проходят твои фильтры.", "", filtersText(config, subscriber.filters)].join("\n"),
       { replyMarkup: commandKeyboard() }
     );
+    await sendSavedMatches(config, state, subscriber, chat.id, {
+      limit: 5,
+      title: "Уже сохраненные подходящие варианты",
+    });
     return true;
   }
 
@@ -588,6 +626,22 @@ async function handleCommand(config, state, message, hooks = {}) {
     return true;
   }
 
+  if (command === "/test") {
+    const blocked = Number(state.scanHealth?.blockedStreak || 0);
+    await sendMessage(
+      config,
+      chat.id,
+      [
+        "Тестовое уведомление доставлено.",
+        "Если видишь это сообщение, Telegram и подписка работают.",
+        blocked ? `Важно: ${blocked} скана подряд List.am отдаёт страницу проверки вместо объявлений. Подробности: /status` : null,
+      ]
+        .filter(Boolean)
+        .join("\n")
+    );
+    return true;
+  }
+
   if (command === "/ai") {
     const prompt = normalizeText(args.join(" "));
     if (!prompt) {
@@ -605,6 +659,11 @@ async function handleCommand(config, state, message, hooks = {}) {
     subscriber.filters = normalizeFilters(config, subscriber.pendingAiFilters.filters);
     delete subscriber.pendingAiFilters;
     await sendMessage(config, chat.id, `Готово, фильтры применены.\n\n${filtersText(config, subscriber.filters)}`);
+    const sent = await sendSavedMatches(config, state, subscriber, chat.id, {
+      limit: 8,
+      title: "Подходящие варианты из уже сохраненных",
+    });
+    if (!sent) await sendMessage(config, chat.id, "В сохраненной базе пока нет совпадений под эти фильтры. Новые пришлю после следующего успешного скана.");
     return true;
   }
 
@@ -676,6 +735,19 @@ async function handleCommand(config, state, message, hooks = {}) {
     subscriber.filters.minAreaSqm = range.reset ? null : Math.round(range.min || 0) || null;
     subscriber.filters.maxAreaSqm = range.reset ? null : Math.round(range.max || 0) || null;
     await sendMessage(config, chat.id, `Площадь обновлена.\n\n${filtersText(config, subscriber.filters)}`);
+    return true;
+  }
+
+  if (command === "/land" || command === "/plot") {
+    const range = parseRangeArg(args, "min");
+    if (!range) {
+      await sendMessage(config, chat.id, "Пример: /land 100-600, /land от 200 или /land any");
+      return true;
+    }
+    subscriber.filters.minLandSqm = range.reset ? null : Math.round(range.min || 0) || null;
+    subscriber.filters.maxLandSqm = range.reset ? null : Math.round(range.max || 0) || null;
+    if (!range.reset) subscriber.filters.categories = ["house"];
+    await sendMessage(config, chat.id, `Участок обновлен.\n\n${filtersText(config, subscriber.filters)}`);
     return true;
   }
 
@@ -757,14 +829,32 @@ async function handleCommand(config, state, message, hooks = {}) {
     return true;
   }
 
-  if (command === "/latest" || command === "/top") {
+  if (command === "/latest" || command === "/top" || command === "/houses" || command === "/apartments") {
     const limit = clamp(Math.round(parseNumberArg(args, 8)), 1, 20);
-    const listings = matchingListings(config, subscriber, state.listings || [], limit, command === "/top" ? "top" : "latest");
+    const mode = command === "/top" ? "top" : "latest";
+    const scopedSubscriber =
+      command === "/houses" || command === "/apartments"
+        ? {
+            ...subscriber,
+            filters: normalizeFilters(config, {
+              ...subscriber.filters,
+              categories: [command === "/houses" ? "house" : "apartment"],
+            }),
+          }
+        : subscriber;
+    const listings = matchingListings(config, scopedSubscriber, state.listings || [], limit, mode);
     if (listings.length === 0) {
-      await sendMessage(config, chat.id, "Пока нет сохраненных объявлений под эти фильтры. Можно подождать следующий скан или расширить фильтры через /filters.");
+      await sendMessage(config, chat.id, "Пока нет сохраненных объявлений под эти фильтры. Можно подождать следующий успешный скан или расширить фильтры через /filters.");
       return true;
     }
-    const title = command === "/top" ? "Лучшие варианты" : "Последние подходящие варианты";
+    const title =
+      command === "/top"
+        ? "Лучшие варианты"
+        : command === "/houses"
+          ? "Последние дома по фильтрам"
+          : command === "/apartments"
+            ? "Последние квартиры по фильтрам"
+            : "Последние подходящие варианты";
     for (const chunk of chunkListings(title, listings, config)) {
       await sendMessage(config, chat.id, chunk);
     }
@@ -773,16 +863,31 @@ async function handleCommand(config, state, message, hooks = {}) {
 
   if (command === "/status") {
     const activeCount = activeSubscribers(state, config).length;
+    const blockedStreak = Number(state.scanHealth?.blockedStreak || 0);
     const lastScan = state.lastScan
       ? `${state.lastScan.at}: найдено ${state.lastScan.scanned}, новых ${state.lastScan.new}, пропущено страниц ${state.lastScan.skipped || 0}${
           state.lastScan.error ? `, ошибка: ${state.lastScan.error}` : ""
         }`
       : "скана еще не было";
     const nextScan = state.nextScanAt ? state.nextScanAt : "планируется";
+    const scannerLine = blockedStreak
+      ? `Сканер: проблема ${blockedStreak} скана подряд, List.am отдаёт страницу проверки вместо объявлений.`
+      : "Сканер: нет серии блокировок.";
+    const lastBlockedLine = state.lastScan?.blocked ? "Последний скан не получил объявления из-за страницы проверки List.am." : null;
     await sendMessage(
       config,
       chat.id,
-      [`Монитор работает.`, `Подписчиков: ${activeCount}`, `Последний скан: ${escapeHtml(lastScan)}`, `Следующий скан: ${escapeHtml(nextScan)}`].join("\n")
+      [
+        `Монитор работает.`,
+        `Telegram: доставка до этого чата работает.`,
+        `Подписчиков: ${activeCount}`,
+        scannerLine,
+        lastBlockedLine,
+        `Последний скан: ${escapeHtml(lastScan)}`,
+        `Следующий скан: ${escapeHtml(nextScan)}`,
+      ]
+        .filter(Boolean)
+        .join("\n")
     );
     return true;
   }
@@ -836,15 +941,28 @@ async function notifySubscribers(config, state, newListings) {
     return;
   }
 
+  let matchedSubscribers = 0;
+  let totalMatches = 0;
+  let sentMessages = 0;
+  console.log(`[telegram] notification pass: recipients ${recipients.length}, new listings ${newListings.length}`);
+
   for (const subscriber of recipients) {
     subscriber.filters = normalizeFilters(config, subscriber.filters);
     const matches = newListings.filter((item) => matchesSubscriber(config, subscriber, item));
     if (matches.length === 0) continue;
+    matchedSubscribers += 1;
+    totalMatches += matches.length;
     const title = `Новые объявления для ${escapeHtml(subscriberName(subscriber))}`;
     for (const chunk of chunkListings(title, matches, config)) {
-      await sendMessage(config, subscriber.id, chunk);
+      await sendMessage(config, subscriber.id, chunk)
+        .then(() => {
+          sentMessages += 1;
+        })
+        .catch((error) => console.error(`[telegram] failed to send listing notification: ${error.message}`));
     }
   }
+
+  console.log(`[telegram] notification pass done: matched subscribers ${matchedSubscribers}, matched listings ${totalMatches}, messages sent ${sentMessages}`);
 }
 
 module.exports = {

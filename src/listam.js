@@ -196,12 +196,15 @@ async function waitForListings(page, config) {
     await sleep(1200);
     const title = await page.title().catch(() => "");
     const text = await page.locator("body").innerText().catch(() => "");
-    if (/Just a moment/i.test(title)) {
+    const looksLikeChallenge = /Just a moment/i.test(title) || /checking your browser|verify you are human|cloudflare/i.test(text);
+    if (looksLikeChallenge) {
       firstChallengeAt ||= Date.now();
       if (Date.now() - firstChallengeAt >= config.challengeWaitSeconds * 1000) return false;
       continue;
     }
     if (PAGE_MARKERS.some((marker) => text.includes(marker))) return true;
+    const itemLinks = await page.locator("a[href*='/item/']").count().catch(() => 0);
+    if (itemLinks > 0 && /(\$|֏|€)/.test(text)) return true;
   }
   return false;
 }

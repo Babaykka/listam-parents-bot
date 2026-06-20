@@ -51,6 +51,7 @@ function healthPayload() {
     subscribers: activeSubscribers(state, config).length,
     scanRunning,
     lastScan: state.lastScan,
+    scanHealth: state.scanHealth || null,
     nextScanAt: state.nextScanAt,
     publicUrl: config.publicUrl || null,
   };
@@ -96,6 +97,12 @@ async function runScanCycle(reason = "schedule") {
     const result = await scanListAm(config);
     const allSeen = new Set([...(state.seenIds || []), ...result.listings.map((item) => item.id)]);
     const newListings = result.listings.filter((item) => !oldSeen.has(item.id));
+    const subscribers = activeSubscribers(state, config);
+    const expectedPages = config.categories.length * config.scanPagesPerCategory;
+    const challengeBlocked =
+      result.listings.length === 0 &&
+      result.skipped.length >= expectedPages &&
+      result.skipped.some((item) => /Just a moment/i.test(item.title || item.error || ""));
 
     state.seenIds = Array.from(allSeen).slice(-config.maxSeenIds);
     state.listings = mergeListings(state.listings, result.listings, config);
@@ -105,19 +112,27 @@ async function runScanCycle(reason = "schedule") {
       scanned: result.listings.length,
       new: newListings.length,
       skipped: result.skipped.length,
+      blocked: challengeBlocked,
+      skippedDetails: result.skipped.slice(0, 5),
       locations: result.locations,
     };
+    const previousBlockedStreak = Number(state.scanHealth?.blockedStreak || 0);
+    updateScanHealth(state, config, challengeBlocked);
 
     writeState(config, state);
-    console.log(`[scan] done: matched ${result.listings.length}, new ${newListings.length}, skipped ${result.skipped.length}`);
+    console.log(
+      `[scan] done: matched ${result.listings.length}, new ${newListings.length}, skipped ${result.skipped.length}, blocked ${challengeBlocked}`
+    );
 
     if (newListings.length > 0) {
-      if (!config.sendInitial && oldSeen.size === 0) {
-        console.log("[scan] first run initialized seen ids without sending old listings");
+      if (!config.sendInitial && oldSeen.size === 0 && subscribers.length === 0) {
+        console.log("[scan] first run initialized seen ids without sending old listings because there are no subscribers");
       } else {
         await notifySubscribers(config, state, newListings);
       }
     }
+
+    await maybeNotifyScanHealth(config, state, challengeBlocked, result, previousBlockedStreak);
   } catch (error) {
     console.error(`[scan] failed: ${error.stack || error.message}`);
     state.lastScan = {
@@ -137,6 +152,57 @@ async function runScanCycle(reason = "schedule") {
     }
   } finally {
     scanRunning = false;
+  }
+}
+
+function updateScanHealth(state, config, blocked) {
+  state.scanHealth ||= {};
+  if (blocked) {
+    state.scanHealth.blockedStreak = Number(state.scanHealth.blockedStreak || 0) + 1;
+  } else {
+    state.scanHealth.blockedStreak = 0;
+  }
+  state.scanHealth.updatedAt = new Date().toISOString();
+}
+
+function canSendScanIssueAlert(config, state) {
+  if (!config.scanIssueAlerts) return false;
+  const health = state.scanHealth || {};
+  if (Number(health.blockedStreak || 0) < config.scanIssueAlertAfter) return false;
+  if (!health.lastIssueAlertAt) return true;
+  const elapsedMinutes = (Date.now() - Date.parse(health.lastIssueAlertAt)) / 60000;
+  return elapsedMinutes >= config.scanIssueAlertCooldownMinutes;
+}
+
+async function sendToActiveSubscribers(config, state, text) {
+  const recipients = activeSubscribers(state, config);
+  for (const subscriber of recipients) {
+    await sendMessage(config, subscriber.id, text).catch((error) => console.error(`[telegram] scan health alert failed: ${error.message}`));
+  }
+}
+
+async function maybeNotifyScanHealth(config, state, blocked, result, previousBlockedStreak = 0) {
+  if (blocked && canSendScanIssueAlert(config, state)) {
+    state.scanHealth.lastIssueAlertAt = new Date().toISOString();
+    writeState(config, state);
+    await sendToActiveSubscribers(
+      config,
+      state,
+      [
+        "<b>Монитор List.am временно не видит объявления</b>",
+        `Последние ${state.scanHealth.blockedStreak} скана подряд List.am отдаёт страницу проверки вместо объявлений.`,
+        "Бот живой, Telegram работает, но новые уведомления задержатся, пока сайт снова начнет отдавать объявления.",
+        "",
+        "Проверить: /status",
+      ].join("\n")
+    );
+    return;
+  }
+
+  if (!blocked && previousBlockedStreak > 0 && result.listings.length > 0) {
+    state.scanHealth.lastRecoveryAlertAt = new Date().toISOString();
+    writeState(config, state);
+    await sendToActiveSubscribers(config, state, "Монитор List.am снова видит объявления. Сканер восстановился.");
   }
 }
 

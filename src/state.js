@@ -12,6 +12,11 @@ function defaultState() {
     lastScan: null,
     nextScanAt: null,
     bot: null,
+    scanHealth: {
+      blockedStreak: 0,
+      lastIssueAlertAt: null,
+      lastRecoveryAlertAt: null,
+    },
   };
 }
 
@@ -50,6 +55,8 @@ function defaultFilters(config) {
     maxRooms: null,
     minAreaSqm: null,
     maxAreaSqm: null,
+    minLandSqm: null,
+    maxLandSqm: null,
     maxPricePerSqm: null,
     minFloor: null,
     maxFloor: null,
@@ -84,6 +91,8 @@ function normalizeFilters(config, filters = {}) {
     maxRooms: numberOrNull(filters.maxRooms),
     minAreaSqm: numberOrNull(filters.minAreaSqm),
     maxAreaSqm: numberOrNull(filters.maxAreaSqm),
+    minLandSqm: numberOrNull(filters.minLandSqm),
+    maxLandSqm: numberOrNull(filters.maxLandSqm),
     maxPricePerSqm: numberOrNull(filters.maxPricePerSqm),
     minFloor: numberOrNull(filters.minFloor),
     maxFloor: numberOrNull(filters.maxFloor),

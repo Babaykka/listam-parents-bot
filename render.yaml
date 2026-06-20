@@ -36,9 +36,17 @@ services:
       - key: LISTAM_PAGES_PER_CATEGORY
         value: "1"
       - key: LISTAM_PAGE_WAIT_SECONDS
-        value: "15"
+        value: "60"
       - key: LISTAM_CHALLENGE_MAX_SECONDS
-        value: "8"
+        value: "45"
+      - key: NAVIGATION_TIMEOUT_MS
+        value: "75000"
+      - key: SCAN_ISSUE_ALERTS
+        value: "true"
+      - key: SCAN_ISSUE_ALERT_AFTER
+        value: "3"
+      - key: SCAN_ISSUE_ALERT_COOLDOWN_MINUTES
+        value: "360"
       - key: POLL_INTERVAL_MINUTES
         value: "20"
       - key: TELEGRAM_BATCH_SIZE
