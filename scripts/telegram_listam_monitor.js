@@ -258,7 +258,7 @@ function parseItem(raw, config) {
     id,
     kind: raw.kind,
     title: cleanTitle(text, price),
-    url: raw.href.split("?")[0],
+    url: `https://www.list.am/item/${id}`,
     priceLabel: price.label,
     priceUsd: price.usd,
     areaSqm: area,

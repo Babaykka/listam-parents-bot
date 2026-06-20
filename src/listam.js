@@ -170,7 +170,7 @@ function parseItem(raw, category, config) {
     kind: category.label,
     kindKey: category.key,
     title: cleanTitle(text, price, config),
-    url: raw.href.split("?")[0].replace("/item/", "/en/item/"),
+    url: `https://www.list.am/item/${id}`,
     priceLabel: price.label,
     priceUsd: price.usd,
     areaSqm: area,

@@ -143,6 +143,12 @@ function categoryLabel(value) {
   );
 }
 
+function listingUrl(item) {
+  const id = String(item.id || item.url?.match(/\/(?:[a-z]{2}\/)*item\/(\d+)/i)?.[1] || "").trim();
+  if (id) return `https://www.list.am/item/${encodeURIComponent(id)}`;
+  return item.url || "https://www.list.am/";
+}
+
 function listingLine(item) {
   const details = [
     item.location || "локация не распознана",
@@ -159,7 +165,7 @@ function listingLine(item) {
 
   return [
     `<b>${escapeHtml(item.kind)} · ${escapeHtml(item.priceLabel)}</b>`,
-    `<a href="${escapeHtml(item.url)}">${escapeHtml(item.title)}</a>`,
+    `<a href="${escapeHtml(listingUrl(item))}">${escapeHtml(item.title)}</a>`,
     escapeHtml(details.join(" · ")),
   ].join("\n");
 }
@@ -1237,6 +1243,8 @@ module.exports = {
   __test: {
     chunkListings,
     filtersText,
+    listingLine,
+    listingUrl,
     matchesSubscriber,
     matchingListings,
     parseAreas,

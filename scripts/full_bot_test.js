@@ -1,5 +1,5 @@
 const assert = require("assert/strict");
-const { configureTelegram, handleTelegramUpdate, notifySubscribers } = require("../src/telegram");
+const { configureTelegram, handleTelegramUpdate, notifySubscribers, __test: telegramTest } = require("../src/telegram");
 const { activeSubscribers, readState, writeState } = require("../src/state");
 const { __test: listamTest } = require("../src/listam");
 const { createFakeTelegram, listing, telegramError, testConfig, update } = require("./test_helpers");
@@ -36,6 +36,9 @@ async function main() {
   assert.equal(parsed.floor.current, 2);
   assert.equal(parsed.location, "Avan");
   assert.equal(parsed.condition, "ready");
+  assert.equal(parsed.url, "https://www.list.am/item/987654");
+  assert.equal(telegramTest.listingUrl({ id: "123456", url: "https://www.list.am/en/en/item/123456" }), "https://www.list.am/item/123456");
+  assert.match(telegramTest.listingLine({ ...listing(123456), url: "https://www.list.am/en/en/item/123456" }), /href="https:\/\/www\.list\.am\/item\/123456"/);
 
   await handleTelegramUpdate(config, state, update("/start", 101));
   assert.equal(activeSubscribers(state, config).length, 1);
