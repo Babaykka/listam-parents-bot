@@ -42,6 +42,15 @@ async function sendMessage(config, chatId, text, options = {}) {
   });
 }
 
+async function setupTelegramApi(config, method, body) {
+  try {
+    return await telegramApi(config, method, body);
+  } catch (error) {
+    console.warn(`[telegram] setup ${method} skipped: ${error.message}`);
+    return null;
+  }
+}
+
 function money(value) {
   return `$${Number(value || 0).toLocaleString("en-US")}`;
 }
@@ -568,17 +577,17 @@ async function configureTelegram(config, state) {
     firstName: bot.first_name,
   };
 
-  await telegramApi(config, "setMyName", {
+  await setupTelegramApi(config, "setMyName", {
     name: "List.am Real Estate Bot",
   });
-  await telegramApi(config, "setMyShortDescription", {
+  await setupTelegramApi(config, "setMyShortDescription", {
     short_description: "Новые квартиры и дома с List.am. Просто напиши, что ищешь.",
   });
-  await telegramApi(config, "setMyDescription", {
+  await setupTelegramApi(config, "setMyDescription", {
     description:
       "Бот проверяет новые объявления List.am по недвижимости и присылает совпадения. Настройка простая: напиши обычным текстом, что ищешь, например 'дом до 120к, до 30 минут от центра'.",
   });
-  await telegramApi(config, "setMyCommands", {
+  await setupTelegramApi(config, "setMyCommands", {
     commands: [
       { command: "start", description: "Включить подписку" },
       { command: "tour", description: "Как работает бот" },
