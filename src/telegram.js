@@ -874,10 +874,17 @@ async function handleCommand(config, state, message, hooks = {}) {
       : "скана еще не было";
     const nextScan = state.nextScanAt ? state.nextScanAt : "планируется";
     const lastUserScan = state.lastUserScanAt ? `Последний ручной запуск: ${state.lastUserScanAt}` : null;
-    const scannerLine = blockedStreak
-      ? `Сканер: проблема ${blockedStreak} скана подряд, List.am отдаёт страницу проверки вместо объявлений.`
-      : "Сканер: нет серии блокировок.";
-    const lastBlockedLine = state.lastScan?.blocked ? "Последний скан не получил объявления из-за страницы проверки List.am." : null;
+    const expectedPages = config.categories.length * config.scanPagesPerCategory;
+    const lastScanLooksBlocked =
+      state.lastScan?.blocked ||
+      (state.lastScan && !state.lastScan.error && Number(state.lastScan.scanned || 0) === 0 && Number(state.lastScan.skipped || 0) >= expectedPages);
+    let scannerLine = "Сканер: нет серии блокировок.";
+    if (blockedStreak) {
+      scannerLine = `Сканер: проблема ${blockedStreak} скана подряд, List.am отдаёт страницу проверки вместо объявлений.`;
+    } else if (lastScanLooksBlocked) {
+      scannerLine = "Сканер: последний скан не получил объявления, похоже на страницу проверки List.am.";
+    }
+    const lastBlockedLine = lastScanLooksBlocked ? "Последний скан не получил объявления из-за страницы проверки List.am." : null;
     await sendMessage(
       config,
       chat.id,
