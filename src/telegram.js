@@ -270,40 +270,90 @@ function parseCondition(args) {
   return "any";
 }
 
+function shortFiltersText(config, rawFilters) {
+  const filters = normalizeFilters(config, rawFilters);
+  const categories = filters.categories?.length ? filters.categories.map(categoryLabel).join(", ") : "квартиры, дома";
+  const locations = filters.locations?.length ? filters.locations.join(", ") : "все районы из базы";
+  const rooms = rangeText(filters.minRooms, filters.maxRooms);
+  const area = rangeText(filters.minAreaSqm, filters.maxAreaSqm, " м²");
+  const distance = filters.maxDistanceMinutes ? `до ${filters.maxDistanceMinutes} мин до центра` : "без ограничения по времени до центра";
+
+  return [
+    `<b>Сейчас бот ищет</b>`,
+    `${escapeHtml(categories)} до ${money(filters.maxPriceUsd)}.`,
+    `Районы: ${escapeHtml(locations)}.`,
+    `Комнаты: ${rooms}, площадь: ${area}, ${distance}.`,
+    "",
+    `Хочешь изменить - просто напиши обычным текстом, например:`,
+    `<i>дом до 120к, до 30 минут от центра, без агентств</i>`,
+  ].join("\n");
+}
+
 function commandKeyboard() {
   return {
     keyboard: [
+      [{ text: "/tour" }, { text: "/setup" }],
       [{ text: "/latest" }, { text: "/top" }],
-      [{ text: "/houses" }, { text: "/apartments" }],
       [{ text: "/filters" }, { text: "/status" }],
-      [{ text: "/test" }, { text: "/setup" }],
-      [{ text: "/scan" }, { text: "/help" }],
+      [{ text: "/houses" }, { text: "/apartments" }],
+      [{ text: "/scan" }, { text: "/test" }],
+      [{ text: "/help" }],
     ],
     resize_keyboard: true,
   };
 }
 
+function tourText(config) {
+  return [
+    `<b>Что делает этот бот</b>`,
+    `Я проверяю новые объявления List.am по недвижимости и присылаю сюда только те варианты, которые подходят под твои фильтры.`,
+    "",
+    `<b>Самый простой старт</b>`,
+    `1. Напиши, что ищешь, обычным текстом.`,
+    `2. Я превращу это в фильтры и покажу, что понял.`,
+    `3. Если все верно, нажми /apply.`,
+    `4. Дальше просто жди новые объявления.`,
+    "",
+    `<b>Пример сообщения</b>`,
+    `<i>квартира 2-3 комнаты до 110к, Аван или Нор Норк, с ремонтом</i>`,
+    `<i>дом до 120к, до 30 минут от центра, участок от 200 м²</i>`,
+    "",
+    `<b>Главные кнопки</b>`,
+    `/setup - примеры настройки`,
+    `/latest - уже найденные варианты`,
+    `/filters - что сейчас ищем`,
+    `/status - работает ли монитор`,
+    `/scan - проверить List.am прямо сейчас`,
+    "",
+    `По умолчанию бюджет до ${money(config.maxPriceUsd)}. Команды знать не нужно: можно писать обычным текстом.`,
+  ].join("\n");
+}
+
 function helpText(config, state) {
   const username = state.bot?.username ? `@${state.bot.username}` : "бота";
   return [
-    `<b>List.am Real Estate Bot</b>`,
-    `Я слежу за новыми квартирами и домами до ${money(config.maxPriceUsd)} и присылаю совпадения по твоим фильтрам.`,
+    `<b>Как работает бот</b>`,
+    `Бот периодически проверяет List.am. Если появилось новое объявление под твои фильтры, он присылает его сюда.`,
+    "",
+    `<b>Как настроить проще всего</b>`,
+    `Просто напиши обычным текстом, что нужно:`,
+    `<i>2-3 комнаты до 110к, не выше 5 этажа, без агентств</i>`,
+    `Бот покажет будущие фильтры. Применить их можно командой /apply.`,
     "",
     `<b>Главное</b>`,
-    `/start - включить подписку`,
+    `/tour - короткое объяснение с нуля`,
+    `/setup - примеры и пресеты`,
     `/latest - последние варианты`,
     `/top - лучшие по качеству`,
     `/houses - дома по твоим фильтрам`,
     `/apartments - квартиры по твоим фильтрам`,
     `/filters - показать фильтры`,
-    `/test - проверить доставку Telegram`,
+    `/status - проверить монитор`,
     `/scan - запустить внеочередной скан`,
-    `/ai 2-3 комнаты до 110к - настроить текстом`,
-    `/apply - применить AI-настройку`,
-    `/cancel - отменить AI-настройку`,
-    `/setup - быстрые пресеты`,
+    `/test - проверить доставку Telegram`,
+    `/share - ссылка, чтобы передать ${escapeHtml(username)}`,
     "",
-    `<b>Фильтры</b>`,
+    `<b>Точная ручная настройка</b>`,
     `/price 80000-120000 - диапазон цены`,
     `/budget 100000 - цена до суммы`,
     `/rooms 2-3 - комнаты`,
@@ -320,23 +370,27 @@ function helpText(config, state) {
     `/types apartment, house - тип жилья`,
     `/score 6 - минимальное качество 0-10`,
     `/reset - сбросить все фильтры`,
-    `/share - ссылка, чтобы передать ${escapeHtml(username)}`,
   ].join("\n");
 }
 
 function setupText() {
   return [
-    `<b>Быстрая настройка</b>`,
-    `Можно написать обычным текстом: "2-3 комнаты до 110к, Аван или Нор Норк, не выше 5 этажа, без агентств".`,
+    `<b>Настройка без команд</b>`,
+    `Напиши одним сообщением, что ищешь. Бот сам разложит это на фильтры и попросит подтвердить.`,
+    "",
+    `<b>Примеры</b>`,
+    `<i>дом до 120к, максимум 30 минут до центра, участок от 200 м²</i>`,
+    `<i>квартира 2-3 комнаты до 110к, Аван или Нор Норк, с ремонтом</i>`,
+    `<i>только квартиры, 50-90 м², до 1600 за м², без агентств</i>`,
     "",
     `<b>Пресеты</b>`,
-    `/preset ready - больше готовых к жизни вариантов`,
-    `/preset value - искать выгодную цену за м²`,
+    `/preset ready - больше вариантов с ремонтом`,
+    `/preset value - больше выгодных по цене за м²`,
     `/preset apartment - только квартиры`,
     `/preset house - только дома`,
     `/preset near - ближе к центру`,
     "",
-    `После пресета можно докрутить вручную: например /rooms 2-3 и /floor 1-5.`,
+    `После любого пресета можно снова написать обычным текстом, и бот обновит фильтры.`,
   ].join("\n");
 }
 
@@ -449,15 +503,15 @@ function applyAiPatch(config, currentFilters, result) {
 
 function aiSetupText(config) {
   return [
-    `<b>AI-настройка фильтров</b>`,
-    config.openaiApiKey ? "Пиши обычным текстом, а я превращу это в фильтры и попрошу подтвердить." : "AI пока не подключен: нужен OPENAI_API_KEY.",
+    `<b>Настройка текстом</b>`,
+    config.openaiApiKey ? "Пиши обычным текстом, а я превращу это в фильтры и попрошу подтвердить." : "Настройка текстом пока не подключена. Можно настроить через /setup.",
     "",
     `<b>Примеры</b>`,
     `2-3 комнаты до 110к, Аван или Нор Норк, не выше 5 этажа`,
     `только квартиры с ремонтом, 50-90 м², до 1600 за м²`,
     `дома до 120к, максимум 30 минут до центра, без агентств`,
     "",
-    `После разбора нажми /apply или /cancel.`,
+    `После разбора нажми /apply, если всё верно, или /cancel, если нужно отменить.`,
   ].join("\n");
 }
 
@@ -467,7 +521,7 @@ async function proposeAiFilters(config, subscriber, chatId, text) {
     return true;
   }
 
-  await sendMessage(config, chatId, "Сейчас разберу и покажу, какие фильтры получаются.");
+  await sendMessage(config, chatId, "Понял, сейчас превращу это в понятные фильтры и покажу перед применением.");
   try {
     const result = await parseFilterRequest(config, subscriber.filters, text);
     if (result.action === "help" || result.action === "unclear" || result.confidence < 0.35) {
@@ -499,7 +553,7 @@ async function proposeAiFilters(config, subscriber, chatId, text) {
     return true;
   } catch (error) {
     console.error(`[openai] filter parse failed: ${error.message}`);
-    await sendMessage(config, chatId, `AI-настройка сейчас не сработала: ${escapeHtml(error.message)}\nМожно настроить вручную через /setup.`);
+    await sendMessage(config, chatId, `Настройка текстом сейчас не сработала: ${escapeHtml(error.message)}\nМожно настроить через /setup или попробовать написать проще.`);
     return true;
   }
 }
@@ -518,15 +572,16 @@ async function configureTelegram(config, state) {
     name: "List.am Real Estate Bot",
   });
   await telegramApi(config, "setMyShortDescription", {
-    short_description: "Новые квартиры и дома, фильтры можно настроить обычным текстом.",
+    short_description: "Новые квартиры и дома с List.am. Просто напиши, что ищешь.",
   });
   await telegramApi(config, "setMyDescription", {
     description:
-      "Монитор новых объявлений List.am по недвижимости. Напиши, что ищешь, обычным текстом: бот превратит это в фильтры по цене, району, комнатам, площади, этажу, лифту, состоянию и цене за м².",
+      "Бот проверяет новые объявления List.am по недвижимости и присылает совпадения. Настройка простая: напиши обычным текстом, что ищешь, например 'дом до 120к, до 30 минут от центра'.",
   });
   await telegramApi(config, "setMyCommands", {
     commands: [
       { command: "start", description: "Включить подписку" },
+      { command: "tour", description: "Как работает бот" },
       { command: "latest", description: "Последние варианты" },
       { command: "top", description: "Лучшие по качеству" },
       { command: "houses", description: "Дома по фильтрам" },
@@ -535,8 +590,8 @@ async function configureTelegram(config, state) {
       { command: "test", description: "Проверить доставку" },
       { command: "scan", description: "Запустить скан" },
       { command: "ai", description: "Настроить фильтры текстом" },
-      { command: "apply", description: "Применить AI-настройку" },
-      { command: "cancel", description: "Отменить AI-настройку" },
+      { command: "apply", description: "Применить настройку" },
+      { command: "cancel", description: "Отменить настройку" },
       { command: "setup", description: "Быстрая настройка" },
       { command: "price", description: "Диапазон цены" },
       { command: "budget", description: "Бюджет до суммы" },
@@ -591,13 +646,20 @@ async function handleCommand(config, state, message, hooks = {}) {
     await sendMessage(
       config,
       chat.id,
-      ["Подписка включена.", "Буду присылать новые объявления, которые проходят твои фильтры.", "", filtersText(config, subscriber.filters)].join("\n"),
-      { replyMarkup: commandKeyboard() }
+      ["Подписка включена.", "", tourText(config)].join("\n"),
+      { replyMarkup: commandKeyboard(), disablePreview: true }
     );
+    await sendMessage(config, chat.id, shortFiltersText(config, subscriber.filters));
     await sendSavedMatches(config, state, subscriber, chat.id, {
       limit: 5,
-      title: "Уже сохраненные подходящие варианты",
+      title: "Так выглядят подходящие варианты",
     });
+    return true;
+  }
+
+  if (command === "/tour") {
+    await sendMessage(config, chat.id, tourText(config), { replyMarkup: commandKeyboard(), disablePreview: true });
+    await sendMessage(config, chat.id, shortFiltersText(config, subscriber.filters));
     return true;
   }
 
@@ -656,7 +718,7 @@ async function handleCommand(config, state, message, hooks = {}) {
 
   if (command === "/apply") {
     if (!subscriber.pendingAiFilters?.filters) {
-      await sendMessage(config, chat.id, "Нет AI-настройки для применения. Напиши запрос обычным текстом или используй /ai.");
+      await sendMessage(config, chat.id, "Пока нечего применять. Сначала напиши обычным текстом, что ищешь, например: дом до 120к до 30 минут от центра.");
       return true;
     }
     subscriber.filters = normalizeFilters(config, subscriber.pendingAiFilters.filters);
@@ -673,7 +735,7 @@ async function handleCommand(config, state, message, hooks = {}) {
   if (command === "/cancel") {
     if (subscriber.pendingAiFilters) {
       delete subscriber.pendingAiFilters;
-      await sendMessage(config, chat.id, "AI-настройка отменена. Текущие фильтры не менял.");
+      await sendMessage(config, chat.id, "Отменил. Текущие фильтры не менял.");
     } else {
       await sendMessage(config, chat.id, "Нечего отменять. Текущие фильтры не менял.");
     }
@@ -927,7 +989,7 @@ async function handleCommand(config, state, message, hooks = {}) {
   }
 
   if (command.startsWith("/")) {
-    await sendMessage(config, chat.id, "Не понял команду. Нажми /help.");
+    await sendMessage(config, chat.id, "Не понял команду. Нажми /tour, если хочешь быстро понять, как работает бот, или /help для всех команд.");
     return true;
   }
 
