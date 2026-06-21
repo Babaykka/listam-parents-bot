@@ -260,6 +260,7 @@ async function runScanCycle(reason = "schedule") {
     }
   } finally {
     scanRunning = false;
+    if (reason !== "schedule") scheduleNextScan();
   }
 }
 
