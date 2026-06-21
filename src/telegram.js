@@ -193,40 +193,59 @@ function listingDateDetail(item) {
   return value ? `найдено ботом ${value}` : null;
 }
 
+function joinLine(label, values) {
+  const text = values.filter(Boolean).join(" · ");
+  return text ? escapeHtml(`${label}: ${text}`) : null;
+}
+
+function sourceLabel(item) {
+  if (item.sourceLabel) return item.sourceLabel;
+  if (/list\.am/i.test(String(item.url || ""))) return "List.am";
+  return "";
+}
+
 function listingLine(item) {
-  const details = [
-    item.sourceLabel,
-    item.location || "локация не распознана",
-    listingDateDetail(item),
-    item.minutesToCenter !== null && item.minutesToCenter !== undefined ? `${item.minutesToCenter} мин до центра` : null,
+  const location = item.location || "локация не распознана";
+  const parameters = [
     item.areaSqm ? `${item.areaSqm} м²` : null,
-    item.landSqm ? `участок ${item.landSqm} м²` : null,
-    item.rooms ? `${item.rooms}к` : null,
+    item.rooms ? `${item.rooms} комн.` : null,
     item.floor?.label ? `${item.floor.label} эт.` : null,
+    item.landSqm ? `участок ${item.landSqm} м²` : null,
+  ];
+  const priceDetails = [
+    item.pricePerSqm ? `${money(item.pricePerSqm)}/м²` : null,
+    item.minutesToCenter !== null && item.minutesToCenter !== undefined ? `${item.minutesToCenter} мин до центра` : null,
+  ];
+  const comfort = [
     item.elevator === true ? "лифт" : item.elevator === false && item.floor?.current >= 3 ? "без лифта" : null,
     conditionLabel(item.condition),
-    item.pricePerSqm ? `${money(item.pricePerSqm)}/м²` : null,
-    `качество ${scoreOf(item)}/10`,
-  ].filter(Boolean);
+  ];
 
   return [
     `<b>${escapeHtml(item.kind)} · ${escapeHtml(item.priceLabel)}</b>`,
-    `<a href="${escapeHtml(listingUrl(item))}">${escapeHtml(item.title)}</a>`,
-    escapeHtml(details.join(" · ")),
-  ].join("\n");
+    escapeHtml(`Район: ${location}`),
+    joinLine("Параметры", parameters),
+    joinLine("Цена", priceDetails),
+    joinLine("Дополнительно", comfort),
+    listingDateDetail(item) ? escapeHtml(`Дата: ${listingDateDetail(item)}`) : null,
+    sourceLabel(item) ? escapeHtml(`Источник: ${sourceLabel(item)}`) : null,
+    `<a href="${escapeHtml(listingUrl(item))}">Открыть объявление</a>`,
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 function chunkListings(title, listings, config) {
   const chunks = [];
   for (let index = 0; index < listings.length; index += config.telegramBatchSize) {
     const batch = listings.slice(index, index + config.telegramBatchSize);
-    chunks.push(`${title} (${batch.length}):\n\n${batch.map(listingLine).join("\n\n")}`);
+    const range =
+      listings.length > batch.length
+        ? `Показаны ${index + 1}-${index + batch.length} из ${listings.length}`
+        : `Найдено: ${batch.length}`;
+    chunks.push(`<b>${escapeHtml(title)}</b>\n${escapeHtml(range)}\n\n${batch.map(listingLine).join("\n\n")}`);
   }
   return chunks;
-}
-
-function subscriberName(subscriber) {
-  return subscriber.title || subscriber.username || [subscriber.firstName, subscriber.lastName].filter(Boolean).join(" ") || subscriber.id;
 }
 
 function rangeText(min, max, unit = "", anyText = "любой") {
@@ -1335,7 +1354,7 @@ async function notifySubscribers(config, state, newListings) {
     if (matches.length === 0) continue;
     matchedSubscribers += 1;
     totalMatches += matches.length;
-    const title = `Новые объявления для ${escapeHtml(subscriberName(subscriber))}`;
+    const title = "Новые подходящие варианты";
     for (const chunk of chunkListings(title, matches, config)) {
       await sendMessage(config, subscriber.id, chunk)
         .then(() => {

@@ -78,6 +78,8 @@ async function main() {
   assert.equal(myrealtyCard.priceUsd, 128000);
   assert.equal(telegramTest.listingUrl(myrealtyCard), "https://myrealty.am/en/3-bedroom/apartment-for-sale/Droi+St/Kanaqer-Zeytun/Yerevan/160778");
   assert.match(telegramTest.listingLine(myrealtyCard), /MyRealty/);
+  assert.doesNotMatch(telegramTest.listingLine(myrealtyCard), /sq\.m\.|качество/i);
+  assert.match(telegramTest.listingLine(myrealtyCard), /Параметры: 72 м² · 3 комн\. · 4\/5 эт\./);
 
   await handleTelegramUpdate(config, state, update("/start", 101));
   assert.equal(activeSubscribers(state, config).length, 1);
@@ -98,8 +100,10 @@ async function main() {
   await handleTelegramUpdate(config, state, update("/latest", 101));
   const latestMessages = fake.messages.slice(beforeLatest).map((message) => message.text).join("\n");
   assert.match(latestMessages, /Последние подходящие варианты/);
-  assert.match(latestMessages, /Apartment in Avan/);
-  assert.doesNotMatch(latestMessages, /House in Abovyan/);
+  assert.match(latestMessages, /Район: Avan/);
+  assert.match(latestMessages, /Параметры: 70 м² · 2 комн\./);
+  assert.match(latestMessages, /Открыть объявление/);
+  assert.doesNotMatch(latestMessages, /Район: Abovyan/);
 
   state.lastUserScanAt = null;
   let naturalScanCount = 0;
@@ -112,7 +116,7 @@ async function main() {
   const naturalLatestMessages = fake.messages.slice(beforeNaturalLatest).map((message) => message.text).join("\n");
   assert.equal(naturalScanCount, 1);
   assert.match(naturalLatestMessages, /Последние подходящие варианты/);
-  assert.match(naturalLatestMessages, /Apartment in Avan/);
+  assert.match(naturalLatestMessages, /Район: Avan/);
   assert.match(naturalLatestMessages, /Параллельно запускаю проверку List\.am/);
   assert.doesNotMatch(naturalLatestMessages, /Я помогу настроить/);
   state.lastUserScanAt = null;
@@ -220,8 +224,8 @@ async function main() {
     listing(200002, { kindKey: "house", location: "Abovyan", priceUsd: 110000, rooms: 4, landSqm: 300, floor: null }),
   ]);
   const notificationText = fake.messages.slice(beforeNotify).map((message) => `${message.chat_id}:${message.text}`).join("\n");
-  assert.match(notificationText, /101:[\s\S]*Apartment in Avan/);
-  assert.match(notificationText, /202:[\s\S]*House in Abovyan/);
+  assert.match(notificationText, /101:[\s\S]*Район: Avan/);
+  assert.match(notificationText, /202:[\s\S]*Район: Abovyan/);
 
   await handleTelegramUpdate(config, state, update("/start", 303));
   fake.failSend = (body) => (String(body.chat_id) === "303" ? telegramError(403, "Forbidden: bot was blocked by the user", 403) : null);
