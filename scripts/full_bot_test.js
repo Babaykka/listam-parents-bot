@@ -2,6 +2,7 @@ const assert = require("assert/strict");
 const { configureTelegram, handleTelegramUpdate, notifySubscribers, __test: telegramTest } = require("../src/telegram");
 const { activeSubscribers, readState, writeState } = require("../src/state");
 const { __test: listamTest } = require("../src/listam");
+const { __test: myrealtyTest } = require("../src/myrealty");
 const { createFakeTelegram, listing, telegramError, testConfig, update } = require("./test_helpers");
 
 async function main() {
@@ -51,6 +52,32 @@ async function main() {
     "опубликовано 20.06.2026"
   );
   assert.match(telegramTest.listingLine({ ...listing(123458), publishedAt: null }), /найдено ботом/);
+
+  const myrealtyCard = myrealtyTest.parseCard(
+    {
+      href: "https://myrealty.am/en/3-bedroom/apartment-for-sale/Droi+St/Kanaqer-Zeytun/Yerevan/160778",
+      idFromHref: "160778",
+      html: `
+        <div class="item-list-id"><span>ID 160778</span></div>
+        <div class="item-type show-on-list"><span>FOR SALE</span></div>
+        <div class="item-property-type"><i></i>Apartment</div>
+        <div class="item-price"><i></i>128,000</div>
+        <div class="item-date"><label>Added in</label><i></i> 21.06.2026</div>
+        <div class="item-address"><i></i> Droi St, Kanaqer-Zeytun, Yerevan</div>
+        <div class="item-sqm"><span>72</span><label>SQ. M.</label></div>
+        <div class="item-rooms"><span>3</span><label>Room</label></div>
+        <div class="item-floor"><span>4/5</span><label>Floor</label></div>
+        <div class="item-short-text-info">newly renovated, heating</div>
+      `,
+    },
+    { ...config, maxPriceUsd: 130000 }
+  );
+  assert.equal(myrealtyCard.id, "myrealty:160778");
+  assert.equal(myrealtyCard.sourceLabel, "MyRealty");
+  assert.equal(myrealtyCard.location, "Kanaker-Zeytun");
+  assert.equal(myrealtyCard.priceUsd, 128000);
+  assert.equal(telegramTest.listingUrl(myrealtyCard), "https://myrealty.am/en/3-bedroom/apartment-for-sale/Droi+St/Kanaqer-Zeytun/Yerevan/160778");
+  assert.match(telegramTest.listingLine(myrealtyCard), /MyRealty/);
 
   await handleTelegramUpdate(config, state, update("/start", 101));
   assert.equal(activeSubscribers(state, config).length, 1);

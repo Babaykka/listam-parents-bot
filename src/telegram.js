@@ -159,7 +159,9 @@ function categoryLabel(value) {
 }
 
 function listingUrl(item) {
-  const id = String(item.id || item.url?.match(/\/(?:[a-z]{2}\/)*item\/(\d+)/i)?.[1] || "").trim();
+  const rawUrl = String(item.url || "");
+  if (rawUrl && !/https?:\/\/(?:www\.)?list\.am\//i.test(rawUrl)) return rawUrl;
+  const id = String(rawUrl.match(/\/(?:[a-z]{2}\/)*item\/(\d+)/i)?.[1] || (/^\d+$/.test(String(item.id || "")) ? item.id : "")).trim();
   if (id) return `https://www.list.am/item/${encodeURIComponent(id)}`;
   return item.url || "https://www.list.am/";
 }
@@ -193,6 +195,7 @@ function listingDateDetail(item) {
 
 function listingLine(item) {
   const details = [
+    item.sourceLabel,
     item.location || "локация не распознана",
     listingDateDetail(item),
     item.minutesToCenter !== null && item.minutesToCenter !== undefined ? `${item.minutesToCenter} мин до центра` : null,
@@ -1239,11 +1242,15 @@ async function handleCommand(config, state, message, hooks = {}) {
     const nextScan = state.nextScanAt ? state.nextScanAt : "планируется";
     const lastUserScan = state.lastUserScanAt ? `Последний ручной запуск: ${state.lastUserScanAt}` : null;
     const expectedPages = config.categories.length * config.scanPagesPerCategory;
+    const listamSource = state.lastScan?.sources?.find((source) => source.source === "listam");
+    const myrealtySource = state.lastScan?.sources?.find((source) => source.source === "myrealty");
     const lastScanLooksBlocked =
       state.lastScan?.blocked ||
       (state.lastScan && !state.lastScan.error && Number(state.lastScan.scanned || 0) === 0 && Number(state.lastScan.skipped || 0) >= expectedPages);
     let scannerLine = "List.am отвечает нормально.";
-    if (blockedStreak) {
+    if (listamSource?.blocked && Number(myrealtySource?.listings || 0) > 0) {
+      scannerLine = `List.am сейчас показывает проверку браузера, но резервный MyRealty работает: в последнем скане найдено ${myrealtySource.listings}.`;
+    } else if (blockedStreak) {
       scannerLine = "List.am сейчас показывает проверку браузера. Новые объявления могут задержаться, но бот попробует снова автоматически.";
     } else if (lastScanLooksBlocked) {
       scannerLine = "Последняя проверка не получила объявления. Похоже, List.am показал проверку браузера.";

@@ -1,6 +1,7 @@
 const http = require("http");
 const { loadConfig } = require("./config");
 const { scanListAm } = require("./listam");
+const { scanMyRealty } = require("./myrealty");
 const { activeSubscribers, deactivateSubscriber, readState, writeState } = require("./state");
 const {
   configureTelegram,
@@ -18,15 +19,15 @@ let server = null;
 let nextScanTimer = null;
 let telegramPollTimer = null;
 
-const RELEASE_NOTICE_ID = "2026-06-20-natural-listing-requests";
+const RELEASE_NOTICE_ID = "2026-06-21-mandatory-fallback-source";
 const RELEASE_NOTICE_TEXT = [
   "<b>Обновление бота</b>",
-  "Теперь бот лучше понимает обычные просьбы.",
+  "Исправил проблему, из-за которой объявления не приходили.",
   "",
   "Что изменилось:",
-  "- можно написать: «отправь все новые публикации»;",
-  "- бот сразу покажет сохраненные подходящие варианты;",
-  "- если просьба про новые объявления, бот параллельно запустит проверку List.am;",
+  "- List.am сейчас часто показывает проверку браузера и не отдает карточки;",
+  "- бот теперь подключает резервный источник MyRealty, чтобы все равно присылать варианты;",
+  "- повторные предупреждения про List.am больше не будут спамить чат;",
   "- кнопка /start ниже обновит меню и подсказки.",
   "",
   "Чтобы обновить меню, нажми /start.",
@@ -77,6 +78,8 @@ function healthPayload() {
     service: "listam-estate-bot",
     bot: state.bot?.username || null,
     subscribers: activeSubscribers(state, config).length,
+    listings: state.listings?.length || 0,
+    seenIds: state.seenIds?.length || 0,
     scanRunning,
     lastScan: state.lastScan,
     scanHealth: state.scanHealth || null,
@@ -130,6 +133,68 @@ function mergeListings(previous, scanned, config) {
     .slice(0, config.maxListingsCache);
 }
 
+function sourceMaxPriceUsd(config, state) {
+  const subscriberMaxPrices = activeSubscribers(state, config)
+    .map((subscriber) => Number(subscriber.filters?.maxPriceUsd || 0))
+    .filter((value) => Number.isFinite(value) && value > 0);
+  return Math.max(config.maxPriceUsd, ...subscriberMaxPrices);
+}
+
+function listamBlocked(result, config) {
+  const expectedPages = config.categories.length * config.scanPagesPerCategory;
+  return (
+    result.listings.length === 0 &&
+    result.skipped.length >= expectedPages &&
+    result.skipped.some((item) => /Just a moment/i.test(item.title || item.error || ""))
+  );
+}
+
+function combineScanResults(primary, fallback) {
+  if (!fallback) {
+    return {
+      ...primary,
+      sourceResults: [{ source: "listam", listings: primary.listings.length, skipped: primary.skipped.length, blocked: primary.blocked }],
+    };
+  }
+
+  const byId = new Map();
+  for (const item of [...primary.listings, ...fallback.listings]) byId.set(item.id, item);
+  const listings = Array.from(byId.values()).sort((a, b) => {
+    const left = String(b.publishedAt || b.scannedAt);
+    const right = String(a.publishedAt || a.scannedAt);
+    return left.localeCompare(right) || Number(a.priceUsd || 0) - Number(b.priceUsd || 0);
+  });
+
+  return {
+    listings,
+    skipped: [...primary.skipped, ...fallback.skipped],
+    scannedAt: new Date().toISOString(),
+    locations: uniqueLocations([...primary.locations, ...fallback.locations]),
+    blocked: primary.blocked && fallback.listings.length === 0,
+    sourceResults: [
+      { source: "listam", listings: primary.listings.length, skipped: primary.skipped.length, blocked: primary.blocked },
+      { source: "myrealty", listings: fallback.listings.length, skipped: fallback.skipped.length, blocked: false },
+    ],
+  };
+}
+
+function uniqueLocations(values) {
+  return Array.from(new Set(values.filter(Boolean)));
+}
+
+async function scanSources(config, state) {
+  const scanConfig = { ...config, maxPriceUsd: sourceMaxPriceUsd(config, state) };
+  const listam = await scanListAm(scanConfig);
+  listam.blocked = listamBlocked(listam, scanConfig);
+
+  if (!config.myrealtyFallbackEnabled || (listam.listings.length > 0 && !listam.blocked)) {
+    return combineScanResults(listam, null);
+  }
+
+  const fallback = await scanMyRealty(scanConfig);
+  return combineScanResults(listam, fallback);
+}
+
 async function runScanCycle(reason = "schedule") {
   if (scanRunning) {
     console.log(`[scan] already running, skip ${reason}`);
@@ -141,14 +206,11 @@ async function runScanCycle(reason = "schedule") {
 
   try {
     const oldSeen = new Set(state.seenIds || []);
-    const result = await scanListAm(config);
+    const previousBlockedStreak = Number(state.scanHealth?.blockedStreak || 0);
+    const result = await scanSources(config, state);
     const allSeen = new Set([...(state.seenIds || []), ...result.listings.map((item) => item.id)]);
     const newListings = result.listings.filter((item) => !oldSeen.has(item.id));
-    const expectedPages = config.categories.length * config.scanPagesPerCategory;
-    const challengeBlocked =
-      result.listings.length === 0 &&
-      result.skipped.length >= expectedPages &&
-      result.skipped.some((item) => /Just a moment/i.test(item.title || item.error || ""));
+    const challengeBlocked = Boolean(result.blocked);
 
     state.seenIds = Array.from(allSeen).slice(-config.maxSeenIds);
     state.listings = mergeListings(state.listings, result.listings, config);
@@ -160,9 +222,9 @@ async function runScanCycle(reason = "schedule") {
       skipped: result.skipped.length,
       blocked: challengeBlocked,
       skippedDetails: result.skipped.slice(0, 5),
+      sources: result.sourceResults || [],
       locations: result.locations,
     };
-    const previousBlockedStreak = Number(state.scanHealth?.blockedStreak || 0);
     updateScanHealth(state, config, challengeBlocked);
 
     writeState(config, state);
@@ -171,7 +233,7 @@ async function runScanCycle(reason = "schedule") {
     );
 
     if (newListings.length > 0) {
-      if (!config.sendInitial && oldSeen.size === 0) {
+      if (!config.sendInitial && oldSeen.size === 0 && previousBlockedStreak === 0) {
         console.log(`[scan] first successful run initialized ${newListings.length} seen ids without sending old listings`);
       } else {
         await notifySubscribers(config, state, newListings);
@@ -204,9 +266,12 @@ async function runScanCycle(reason = "schedule") {
 function updateScanHealth(state, config, blocked) {
   state.scanHealth ||= {};
   if (blocked) {
+    if (!state.scanHealth.blockedSince) state.scanHealth.blockedSince = new Date().toISOString();
     state.scanHealth.blockedStreak = Number(state.scanHealth.blockedStreak || 0) + 1;
   } else {
     state.scanHealth.blockedStreak = 0;
+    state.scanHealth.blockedSince = null;
+    state.scanHealth.lastIssueAlertBlockedSince = null;
   }
   state.scanHealth.updatedAt = new Date().toISOString();
 }
@@ -215,6 +280,7 @@ function canSendScanIssueAlert(config, state) {
   if (!config.scanIssueAlerts) return false;
   const health = state.scanHealth || {};
   if (Number(health.blockedStreak || 0) < config.scanIssueAlertAfter) return false;
+  if (health.lastIssueAlertBlockedSince && health.lastIssueAlertBlockedSince === health.blockedSince) return false;
   if (!health.lastIssueAlertAt) return true;
   const elapsedMinutes = (Date.now() - Date.parse(health.lastIssueAlertAt)) / 60000;
   return elapsedMinutes >= config.scanIssueAlertCooldownMinutes;
@@ -238,6 +304,7 @@ async function sendToActiveSubscribers(config, state, text, options = {}) {
 async function maybeNotifyScanHealth(config, state, blocked, result, previousBlockedStreak = 0) {
   if (blocked && canSendScanIssueAlert(config, state)) {
     state.scanHealth.lastIssueAlertAt = new Date().toISOString();
+    state.scanHealth.lastIssueAlertBlockedSince = state.scanHealth.blockedSince || state.scanHealth.lastIssueAlertAt;
     writeState(config, state);
     await sendToActiveSubscribers(
       config,
@@ -253,7 +320,8 @@ async function maybeNotifyScanHealth(config, state, blocked, result, previousBlo
     return;
   }
 
-  if (!blocked && previousBlockedStreak > 0 && result.listings.length > 0) {
+  const listamSource = result.sourceResults?.find((source) => source.source === "listam");
+  if (!blocked && previousBlockedStreak > 0 && result.listings.length > 0 && !listamSource?.blocked) {
     state.scanHealth.lastRecoveryAlertAt = new Date().toISOString();
     writeState(config, state);
     await sendToActiveSubscribers(config, state, "List.am снова отдаёт объявления. Я продолжил обычную проверку и пришлю новые подходящие варианты автоматически.");
@@ -352,7 +420,7 @@ async function start() {
   console.log(`[http] listening on 0.0.0.0:${config.port}`);
   setTimeout(() => maybeSendReleaseNotice().catch((error) => console.error(`[notice] release notice failed: ${error.message}`)), 1000);
 
-  if (config.scanOnStart) {
+  if (config.scanOnStart || Number(state.scanHealth?.blockedStreak || 0) > 0) {
     setTimeout(() => runScanCycle("startup").catch((error) => console.error(error)), 1500);
   }
   scheduleNextScan();
