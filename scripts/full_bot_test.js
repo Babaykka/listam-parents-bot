@@ -1,6 +1,7 @@
 const assert = require("assert/strict");
 const { configureTelegram, handleTelegramUpdate, notifySubscribers, __test: telegramTest } = require("../src/telegram");
 const { activeSubscribers, readState, writeState } = require("../src/state");
+const freshnessTest = require("../src/listingFreshness");
 const { __test: listamTest } = require("../src/listam");
 const { __test: myrealtyTest } = require("../src/myrealty");
 const { createFakeTelegram, listing, telegramError, testConfig, update } = require("./test_helpers");
@@ -62,7 +63,8 @@ async function main() {
         <div class="item-type show-on-list"><span>FOR SALE</span></div>
         <div class="item-property-type"><i></i>Apartment</div>
         <div class="item-price"><i></i>128,000</div>
-        <div class="item-date"><label>Added in</label><i></i> 21.06.2026</div>
+        <div class="item-date"><label>Added in</label><i></i> 13.04.2026</div>
+        <div class="item-date"><label>Edited in</label><i></i> 24.06.2026</div>
         <div class="item-address"><i></i> Droi St, Kanaqer-Zeytun, Yerevan</div>
         <div class="item-sqm"><span>72</span><label>SQ. M.</label></div>
         <div class="item-rooms"><span>3</span><label>Room</label></div>
@@ -76,10 +78,36 @@ async function main() {
   assert.equal(myrealtyCard.sourceLabel, "MyRealty");
   assert.equal(myrealtyCard.location, "Kanaker-Zeytun");
   assert.equal(myrealtyCard.priceUsd, 128000);
+  assert(myrealtyCard.publishedAt, "MyRealty Added in date should be parsed");
+  assert(myrealtyCard.updatedAt, "MyRealty Edited in date should be parsed");
   assert.equal(telegramTest.listingUrl(myrealtyCard), "https://myrealty.am/en/3-bedroom/apartment-for-sale/Droi+St/Kanaqer-Zeytun/Yerevan/160778");
   assert.match(telegramTest.listingLine(myrealtyCard), /MyRealty/);
   assert.doesNotMatch(telegramTest.listingLine(myrealtyCard), /sq\.m\.|качество/i);
   assert.match(telegramTest.listingLine(myrealtyCard), /Параметры: 72 м² · 3 комн\. · 4\/5 эт\./);
+  assert.match(
+    telegramTest.listingDateDetail(myrealtyCard),
+    /обновлено 24\.06\.2026, опубликовано 13\.04\.2026/
+  );
+  assert.equal(
+    telegramTest.shouldNotifyListing(config, myrealtyCard, new Date("2026-06-24T12:00:00.000Z")),
+    true
+  );
+  assert.equal(
+    telegramTest.shouldNotifyListing(
+      config,
+      { ...myrealtyCard, updatedAt: null, updatedAtPrecision: null },
+      new Date("2026-06-24T12:00:00.000Z")
+    ),
+    false
+  );
+  assert.equal(freshnessTest.isSeenListing(config, new Set([myrealtyCard.id]), myrealtyCard, new Date("2026-06-24T12:00:00.000Z")), false);
+  assert.equal(
+    freshnessTest.isSeenListing(config, new Set([freshnessTest.listingSeenKey(myrealtyCard)]), myrealtyCard, new Date("2026-06-24T12:00:00.000Z")),
+    true
+  );
+  const migratedSeen = freshnessTest.nextSeenIds([myrealtyCard.id], [myrealtyCard], 100);
+  assert(!migratedSeen.includes(myrealtyCard.id));
+  assert(migratedSeen.includes(freshnessTest.listingSeenKey(myrealtyCard)));
 
   await handleTelegramUpdate(config, state, update("/start", 101));
   assert.equal(activeSubscribers(state, config).length, 1);
@@ -226,6 +254,22 @@ async function main() {
   const notificationText = fake.messages.slice(beforeNotify).map((message) => `${message.chat_id}:${message.text}`).join("\n");
   assert.match(notificationText, /101:[\s\S]*Район: Avan/);
   assert.match(notificationText, /202:[\s\S]*Район: Abovyan/);
+  assert.match(notificationText, /Новые и обновленные варианты/);
+
+  const beforeOldNotify = fake.messages.length;
+  await notifySubscribers(config, state, [
+    listing(210001, {
+      kindKey: "apartment",
+      location: "Avan",
+      priceUsd: 95000,
+      rooms: 2,
+      publishedAt: "2026-04-13T20:00:00.000Z",
+      publishedAtPrecision: "date",
+      updatedAt: null,
+      updatedAtPrecision: null,
+    }),
+  ]);
+  assert.equal(fake.messages.length, beforeOldNotify);
 
   await handleTelegramUpdate(config, state, update("/start", 303));
   fake.failSend = (body) => (String(body.chat_id) === "303" ? telegramError(403, "Forbidden: bot was blocked by the user", 403) : null);

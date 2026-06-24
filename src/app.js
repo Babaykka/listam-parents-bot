@@ -1,5 +1,6 @@
 const http = require("http");
 const { loadConfig } = require("./config");
+const { compareListingActivity, isSeenListing, nextSeenIds } = require("./listingFreshness");
 const { scanListAm } = require("./listam");
 const { scanMyRealty } = require("./myrealty");
 const { activeSubscribers, deactivateSubscriber, readState, writeState } = require("./state");
@@ -129,7 +130,7 @@ function mergeListings(previous, scanned, config) {
   }
 
   return Array.from(byId.values())
-    .sort((a, b) => String(b.discoveredAt || b.scannedAt).localeCompare(String(a.discoveredAt || a.scannedAt)))
+    .sort(compareListingActivity)
     .slice(0, config.maxListingsCache);
 }
 
@@ -159,11 +160,7 @@ function combineScanResults(primary, fallback) {
 
   const byId = new Map();
   for (const item of [...primary.listings, ...fallback.listings]) byId.set(item.id, item);
-  const listings = Array.from(byId.values()).sort((a, b) => {
-    const left = String(b.publishedAt || b.scannedAt);
-    const right = String(a.publishedAt || a.scannedAt);
-    return left.localeCompare(right) || Number(a.priceUsd || 0) - Number(b.priceUsd || 0);
-  });
+  const listings = Array.from(byId.values()).sort(compareListingActivity);
 
   return {
     listings,
@@ -205,14 +202,14 @@ async function runScanCycle(reason = "schedule") {
   console.log(`[scan] start: ${reason}`);
 
   try {
+    const now = new Date();
     const oldSeen = new Set(state.seenIds || []);
     const previousBlockedStreak = Number(state.scanHealth?.blockedStreak || 0);
     const result = await scanSources(config, state);
-    const allSeen = new Set([...(state.seenIds || []), ...result.listings.map((item) => item.id)]);
-    const newListings = result.listings.filter((item) => !oldSeen.has(item.id));
+    const newListings = result.listings.filter((item) => !isSeenListing(config, oldSeen, item, now));
     const challengeBlocked = Boolean(result.blocked);
 
-    state.seenIds = Array.from(allSeen).slice(-config.maxSeenIds);
+    state.seenIds = nextSeenIds(state.seenIds || [], result.listings, config.maxSeenIds);
     state.listings = mergeListings(state.listings, result.listings, config);
     state.lastScan = {
       at: result.scannedAt,

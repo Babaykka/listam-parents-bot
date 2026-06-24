@@ -1,0 +1,73 @@
+function daysSince(value, now = new Date()) {
+  const time = Date.parse(value || "");
+  if (!Number.isFinite(time)) return null;
+  return (now.getTime() - time) / 86400000;
+}
+
+function listingVersionValue(item) {
+  return item.updatedAt || item.publishedAt || "";
+}
+
+function listingSeenKey(item) {
+  const id = String(item?.id || "").trim();
+  if (!id) return "";
+  const version = listingVersionValue(item);
+  return version ? `${id}@${version}` : id;
+}
+
+function isRecentUpdatedListing(config, item, now = new Date()) {
+  if (!item?.updatedAt) return false;
+  if (item.publishedAt && item.updatedAt === item.publishedAt) return false;
+  const updatedDays = daysSince(item.updatedAt, now);
+  return updatedDays !== null && updatedDays >= 0 && updatedDays <= Number(config.notifyUpdatedWithinDays ?? 14);
+}
+
+function shouldNotifyListing(config, item, now = new Date()) {
+  if (isRecentUpdatedListing(config, item, now)) return true;
+
+  const publishedDays = daysSince(item.publishedAt, now);
+  if (publishedDays !== null && publishedDays >= 0 && publishedDays <= Number(config.notifyPublishedWithinDays ?? 30)) return true;
+
+  return !item.publishedAt && !item.updatedAt;
+}
+
+function isSeenListing(config, seenSet, item, now = new Date()) {
+  const id = String(item?.id || "").trim();
+  const key = listingSeenKey(item);
+  if (key && seenSet.has(key)) return true;
+  if (!id || !seenSet.has(id)) return false;
+
+  return !isRecentUpdatedListing(config, item, now);
+}
+
+function nextSeenIds(previousSeen, listings, maxSeenIds) {
+  const currentIds = new Set((listings || []).map((item) => String(item.id || "")).filter(Boolean));
+  const retained = [];
+
+  for (const rawKey of previousSeen || []) {
+    const key = String(rawKey || "");
+    if (!key || currentIds.has(key)) continue;
+    retained.push(key);
+  }
+
+  const currentKeys = (listings || []).map(listingSeenKey).filter(Boolean);
+  return Array.from(new Set([...retained, ...currentKeys])).slice(-maxSeenIds);
+}
+
+function listingActivityValue(item) {
+  return item.updatedAt || item.publishedAt || item.discoveredAt || item.scannedAt || "";
+}
+
+function compareListingActivity(a, b) {
+  return String(listingActivityValue(b)).localeCompare(String(listingActivityValue(a))) || Number(a.priceUsd || 0) - Number(b.priceUsd || 0);
+}
+
+module.exports = {
+  compareListingActivity,
+  daysSince,
+  isSeenListing,
+  listingActivityValue,
+  listingSeenKey,
+  nextSeenIds,
+  shouldNotifyListing,
+};

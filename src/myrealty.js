@@ -1,4 +1,5 @@
 const { clamp, normalizeText, unique } = require("./utils");
+const { compareListingActivity } = require("./listingFreshness");
 
 const YEREVAN_OFFSET_MINUTES = 4 * 60;
 const BASE_URL = "https://myrealty.am";
@@ -131,6 +132,7 @@ function parseCard(card, config) {
   if (location && !(location in config.minutesToCenter)) return null;
 
   const addedText = html.match(/<label>Added in<\/label>[\s\S]*?(\d{2}\.\d{2}\.20\d{2})/)?.[1] || "";
+  const editedText = html.match(/<label>Edited in<\/label>[\s\S]*?(\d{2}\.\d{2}\.20\d{2})/)?.[1] || "";
   const areaSqm = parseNumber(html.match(/item-sqm[\s\S]*?<span>([^<]+)/)?.[1]);
   const rooms = parseNumber(html.match(/item-rooms[\s\S]*?<span>([^<]+)/)?.[1]);
   const floor = parseFloor(html.match(/item-floor[\s\S]*?<span>([^<]+)/)?.[1] || "");
@@ -158,6 +160,8 @@ function parseCard(card, config) {
     condition: parseCondition(description),
     publishedAt: parsePublishedDate(addedText),
     publishedAtPrecision: addedText ? "date" : null,
+    updatedAt: parsePublishedDate(editedText),
+    updatedAtPrecision: editedText ? "date" : null,
     rawText,
     scannedAt: new Date().toISOString(),
   };
@@ -218,7 +222,7 @@ async function scanMyRealty(config, logger = console) {
     seen.add(item.id);
     return true;
   });
-  uniqueListings.sort((a, b) => String(b.publishedAt || b.scannedAt).localeCompare(String(a.publishedAt || a.scannedAt)));
+  uniqueListings.sort(compareListingActivity);
 
   return {
     listings: uniqueListings,

@@ -1,5 +1,6 @@
 const { activeSubscribers, deactivateSubscriber, defaultFilters, normalizeFilters, upsertSubscriber, writeState } = require("./state");
 const { parseFilterRequest } = require("./aiFilters");
+const { shouldNotifyListing } = require("./listingFreshness");
 const { clamp, escapeHtml, normalizeText, sleep } = require("./utils");
 
 const YEREVAN_DATE_FORMATTER = new Intl.DateTimeFormat("ru-RU", {
@@ -179,6 +180,20 @@ function formatYerevanDate(value) {
 }
 
 function listingDateDetail(item) {
+  if (item.updatedAt) {
+    const updatedValue =
+      item.updatedAtPrecision === "date" ? formatYerevanDate(item.updatedAt) : formatYerevanDateTime(item.updatedAt);
+    const publishedValue = item.publishedAt
+      ? item.publishedAtPrecision === "date"
+        ? formatYerevanDate(item.publishedAt)
+        : formatYerevanDateTime(item.publishedAt)
+      : "";
+    if (updatedValue && publishedValue && updatedValue !== publishedValue) {
+      return `обновлено ${updatedValue}, опубликовано ${publishedValue}`;
+    }
+    if (updatedValue) return `обновлено ${updatedValue}`;
+  }
+
   if (item.publishedAt) {
     const value =
       item.publishedAtPrecision === "date"
@@ -1341,20 +1356,27 @@ async function notifySubscribers(config, state, newListings) {
     return;
   }
 
+  const now = new Date();
+  const notifiableListings = newListings.filter((item) => shouldNotifyListing(config, item, now));
+  const archivedOnly = newListings.length - notifiableListings.length;
+  console.log(
+    `[telegram] notification pass: recipients ${recipients.length}, new listings ${newListings.length}, notifiable ${notifiableListings.length}, archived ${archivedOnly}`
+  );
+  if (notifiableListings.length === 0) return;
+
   let matchedSubscribers = 0;
   let totalMatches = 0;
   let sentMessages = 0;
   let deactivatedSubscribers = 0;
-  console.log(`[telegram] notification pass: recipients ${recipients.length}, new listings ${newListings.length}`);
 
   for (const subscriber of recipients) {
     if (subscriber.active === false) continue;
     subscriber.filters = normalizeFilters(config, subscriber.filters);
-    const matches = newListings.filter((item) => matchesSubscriber(config, subscriber, item));
+    const matches = notifiableListings.filter((item) => matchesSubscriber(config, subscriber, item));
     if (matches.length === 0) continue;
     matchedSubscribers += 1;
     totalMatches += matches.length;
-    const title = "Новые подходящие варианты";
+    const title = "Новые и обновленные варианты";
     for (const chunk of chunkListings(title, matches, config)) {
       await sendMessage(config, subscriber.id, chunk)
         .then(() => {
@@ -1397,5 +1419,6 @@ module.exports = {
     parseAreas,
     parseRangeArg,
     parseTypes,
+    shouldNotifyListing,
   },
 };

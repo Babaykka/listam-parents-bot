@@ -51,6 +51,10 @@ services:
         value: "true"
       - key: MYREALTY_PAGES_PER_CATEGORY
         value: "1"
+      - key: NOTIFY_PUBLISHED_WITHIN_DAYS
+        value: "30"
+      - key: NOTIFY_UPDATED_WITHIN_DAYS
+        value: "14"
       - key: USER_SCAN_ENABLED
         value: "true"
       - key: USER_SCAN_COOLDOWN_MINUTES
