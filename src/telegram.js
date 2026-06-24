@@ -270,6 +270,10 @@ function rangeText(min, max, unit = "", anyText = "любой") {
   return anyText;
 }
 
+function hasFilterRange(min, max) {
+  return (min !== null && min !== undefined && min !== 0) || (max !== null && max !== undefined && max !== 0);
+}
+
 function filtersText(config, rawFilters) {
   const filters = normalizeFilters(config, rawFilters);
   const categories = filters.categories?.length ? filters.categories.map(categoryLabel).join(", ") : "квартиры, дома";
@@ -277,24 +281,27 @@ function filtersText(config, rawFilters) {
   const elevator = { yes: "только с лифтом", no: "только без лифта", any: "любой" }[filters.elevator] || "любой";
   const keywords = filters.keywords.length ? filters.keywords.join(", ") : "нет";
   const excludeKeywords = filters.excludeKeywords.length ? filters.excludeKeywords.join(", ") : "нет";
-
-  return [
+  const rows = [
     `<b>Фильтры</b>`,
     `Цена: ${filters.minPriceUsd ? `${money(filters.minPriceUsd)}-` : "до "}${money(filters.maxPriceUsd)}`,
     `Тип: ${escapeHtml(categories)}`,
     `Районы: ${escapeHtml(locations)}`,
-    `Комнаты: ${rangeText(filters.minRooms, filters.maxRooms)}`,
-    `Площадь: ${rangeText(filters.minAreaSqm, filters.maxAreaSqm, " м²")}`,
-    `Участок: ${rangeText(filters.minLandSqm, filters.maxLandSqm, " м²")}`,
-    `Этаж: ${rangeText(filters.minFloor, filters.maxFloor)}`,
-    `До центра: ${filters.maxDistanceMinutes ? `до ${filters.maxDistanceMinutes} мин` : "любой"}`,
-    `Цена за м²: ${filters.maxPricePerSqm ? `до ${money(filters.maxPricePerSqm)}` : "любая"}`,
-    `Лифт: ${elevator}`,
-    `Состояние: ${conditionLabel(filters.condition)}`,
-    `Мин. качество: ${filters.minQualityScore}/10`,
-    `Ключевые слова: ${escapeHtml(keywords)}`,
-    `Исключить слова: ${escapeHtml(excludeKeywords)}`,
-  ].join("\n");
+  ];
+
+  if (hasFilterRange(filters.minRooms, filters.maxRooms)) rows.push(`Комнаты: ${rangeText(filters.minRooms, filters.maxRooms)}`);
+  if (hasFilterRange(filters.minAreaSqm, filters.maxAreaSqm)) rows.push(`Площадь: ${rangeText(filters.minAreaSqm, filters.maxAreaSqm, " м²")}`);
+  if (hasFilterRange(filters.minLandSqm, filters.maxLandSqm)) rows.push(`Участок: ${rangeText(filters.minLandSqm, filters.maxLandSqm, " м²")}`);
+  if (hasFilterRange(filters.minFloor, filters.maxFloor)) rows.push(`Этаж: ${rangeText(filters.minFloor, filters.maxFloor)}`);
+  if (filters.maxDistanceMinutes) rows.push(`До центра: до ${filters.maxDistanceMinutes} мин`);
+  if (filters.maxPricePerSqm) rows.push(`Цена за м²: до ${money(filters.maxPricePerSqm)}`);
+  if (filters.elevator !== "any") rows.push(`Лифт: ${elevator}`);
+  if (filters.condition !== "any") rows.push(`Состояние: ${conditionLabel(filters.condition)}`);
+  if (filters.minQualityScore > config.minQualityScore) rows.push(`Мин. качество: ${filters.minQualityScore}/10`);
+  if (filters.keywords.length) rows.push(`Ключевые слова: ${escapeHtml(keywords)}`);
+  if (filters.excludeKeywords.length) rows.push(`Исключить слова: ${escapeHtml(excludeKeywords)}`);
+
+  if (rows.length === 4) rows.push("Остальное: без ограничений");
+  return rows.join("\n");
 }
 
 function haystack(item) {
@@ -721,6 +728,27 @@ function orderedRange(min, max) {
   return { min, max };
 }
 
+function hasAreaLowerBoundIntent(text) {
+  const value = normalizeText(text).toLowerCase();
+  return (
+    /(?:от|from|min(?:imum)?|минимум|не\s*меньше|больше|>=)\s*\d+(?:[.,]\d+)?\s*(?:кв\.?\s*м|квм|м²|м2|m²|m2|sq\.?\s*m|sqm)?/i.test(value) ||
+    /\d+(?:[.,]\d+)?\s*(?:кв\.?\s*м|квм|м²|м2|m²|m2|sq\.?\s*m|sqm)\s*\+/i.test(value)
+  );
+}
+
+function hasAreaUpperBoundIntent(text) {
+  return /(?:до|under|max(?:imum)?|не\s*больше|меньше|<=)\s*\d+(?:[.,]\d+)?\s*(?:кв\.?\s*м|квм|м²|м2|m²|m2|sq\.?\s*m|sqm)?/i.test(
+    normalizeText(text).toLowerCase()
+  );
+}
+
+function normalizeAreaRangeFromText(userText, area) {
+  if (!area.min || !area.max || area.min !== area.max) return area;
+  if (hasAreaLowerBoundIntent(userText)) return { min: area.min, max: null };
+  if (hasAreaUpperBoundIntent(userText)) return { min: null, max: area.max };
+  return area;
+}
+
 function isAdditiveFilterText(text) {
   return /\b(add|include|also|plus)\b|добав|добавь|добавить|добавим|плюс|ещ[её]|также|\+/i.test(normalizeText(text));
 }
@@ -753,7 +781,7 @@ function applyAiPatch(config, currentFilters, result, userText = "") {
   if (rooms.min !== null && rooms.min !== undefined) next.minRooms = rooms.min;
   if (rooms.max !== null && rooms.max !== undefined) next.maxRooms = rooms.max;
 
-  const area = orderedRange(patch.minAreaSqm, patch.maxAreaSqm);
+  const area = normalizeAreaRangeFromText(userText, orderedRange(patch.minAreaSqm, patch.maxAreaSqm));
   if (area.min !== null && area.min !== undefined) next.minAreaSqm = area.min;
   if (area.max !== null && area.max !== undefined) next.maxAreaSqm = area.max;
 

@@ -159,6 +159,8 @@ async function parseFilterRequest(config, currentFilters, userText, context = {}
           "Keep unspecified filters unchanged by returning null or keep.",
           "Use reset/all only when the user clearly asks to clear filters.",
           "Budget and prices are USD. Area is square meters. Distance is minutes to Yerevan center.",
+          "Interpret area phrases with '+', 'от', 'from', 'minimum', 'не меньше', 'минимум' as a lower bound: set minAreaSqm and keep maxAreaSqm null.",
+          "Examples: '70квм+', '70 m2+', 'от 70 м²' mean minAreaSqm 70 and maxAreaSqm null, not exactly 70.",
           "For houses, land/plot/garden/yard area is square meters and maps to minLandSqm/maxLandSqm.",
           "If the user asks for land, plot, garden, or yard area, set categories to house unless they clearly ask otherwise.",
           "Locations must be chosen exactly from the provided allowed locations.",
