@@ -150,7 +150,7 @@ function loadConfig() {
     scanIssueAlertAfter: envNumber("SCAN_ISSUE_ALERT_AFTER", 3),
     scanIssueAlertCooldownMinutes: envNumber("SCAN_ISSUE_ALERT_COOLDOWN_MINUTES", 360),
     myrealtyFallbackEnabled: envBool("MYREALTY_FALLBACK_ENABLED", true),
-    myrealtyPagesPerCategory: envNumber("MYREALTY_PAGES_PER_CATEGORY", 1),
+    myrealtyPagesPerCategory: envNumber("MYREALTY_PAGES_PER_CATEGORY", 5),
     notifyPublishedWithinDays: envNumber("NOTIFY_PUBLISHED_WITHIN_DAYS", 30),
     notifyUpdatedWithinDays: envNumber("NOTIFY_UPDATED_WITHIN_DAYS", 14),
     userScanEnabled: envBool("USER_SCAN_ENABLED", true),

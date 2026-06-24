@@ -1,4 +1,6 @@
 const assert = require("assert/strict");
+const fs = require("fs");
+const path = require("path");
 const { configureTelegram, handleTelegramUpdate, notifySubscribers, __test: telegramTest } = require("../src/telegram");
 const { activeSubscribers, readState, writeState } = require("../src/state");
 const freshnessTest = require("../src/listingFreshness");
@@ -9,6 +11,9 @@ const { createFakeTelegram, listing, telegramError, testConfig, update } = requi
 async function main() {
   const fake = createFakeTelegram();
   const config = testConfig({ telegramApi: fake.api, telegramBatchSize: 2 });
+  const renderYaml = fs.readFileSync(path.join(__dirname, "..", "render.yaml"), "utf8");
+  assert.equal(config.myrealtyPagesPerCategory, 5);
+  assert.match(renderYaml, /key: MYREALTY_PAGES_PER_CATEGORY\s*\n\s*value: "5"/);
   const state = readState(config);
   state.listings = [
     listing(100001, { kindKey: "apartment", location: "Avan", priceUsd: 90000, rooms: 2 }),

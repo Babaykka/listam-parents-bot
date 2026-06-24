@@ -50,7 +50,7 @@ services:
       - key: MYREALTY_FALLBACK_ENABLED
         value: "true"
       - key: MYREALTY_PAGES_PER_CATEGORY
-        value: "1"
+        value: "5"
       - key: NOTIFY_PUBLISHED_WITHIN_DAYS
         value: "30"
       - key: NOTIFY_UPDATED_WITHIN_DAYS

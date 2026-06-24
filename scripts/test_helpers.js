@@ -36,7 +36,7 @@ function testConfig(overrides = {}) {
     scanIssueAlertAfter: 3,
     scanIssueAlertCooldownMinutes: 360,
     myrealtyFallbackEnabled: true,
-    myrealtyPagesPerCategory: 1,
+    myrealtyPagesPerCategory: 5,
     notifyPublishedWithinDays: 30,
     notifyUpdatedWithinDays: 14,
     userScanEnabled: true,
