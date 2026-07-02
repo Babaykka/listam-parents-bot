@@ -4,6 +4,8 @@ const path = require("path");
 const { configureTelegram, handleTelegramUpdate, notifySubscribers, __test: telegramTest } = require("../src/telegram");
 const { activeSubscribers, readState, writeState } = require("../src/state");
 const freshnessTest = require("../src/listingFreshness");
+const { __test: banaliTest } = require("../src/banali");
+const { __test: estateTest } = require("../src/estate");
 const { __test: listamTest } = require("../src/listam");
 const { __test: myrealtyTest } = require("../src/myrealty");
 const { createFakeTelegram, listing, telegramError, testConfig, update } = require("./test_helpers");
@@ -13,7 +15,13 @@ async function main() {
   const config = testConfig({ telegramApi: fake.api, telegramBatchSize: 2 });
   const renderYaml = fs.readFileSync(path.join(__dirname, "..", "render.yaml"), "utf8");
   assert.equal(config.myrealtyPagesPerCategory, 5);
+  assert.equal(config.estateFallbackEnabled, true);
+  assert.equal(config.banaliFallbackEnabled, true);
+  assert.equal(config.banaliPagesPerCategory, 5);
   assert.match(renderYaml, /key: MYREALTY_PAGES_PER_CATEGORY\s*\n\s*value: "5"/);
+  assert.match(renderYaml, /key: ESTATE_FALLBACK_ENABLED\s*\n\s*value: "true"/);
+  assert.match(renderYaml, /key: BANALI_FALLBACK_ENABLED\s*\n\s*value: "true"/);
+  assert.match(renderYaml, /key: BANALI_PAGES_PER_CATEGORY\s*\n\s*value: "5"/);
   const state = readState(config);
   state.listings = [
     listing(100001, { kindKey: "apartment", location: "Avan", priceUsd: 90000, rooms: 2 }),
@@ -114,6 +122,93 @@ async function main() {
   assert(!migratedSeen.includes(myrealtyCard.id));
   assert(migratedSeen.includes(freshnessTest.listingSeenKey(myrealtyCard)));
 
+  const estateCard = estateTest.parseEntry(
+    `
+      <id>http://www.estate.am/en/3-rooms-apartment-sale-in-zovuni-d122999</id>
+      <title><![CDATA[Apartment, 3 room, Zovuni, Kotayk - 46,800,000 Դ]]></title>
+      <updated>2026-07-01T10:15:00+04:00</updated>
+      <link rel="alternate" href="http://www.estate.am/en/3-rooms-apartment-sale-in-zovuni-d122999"/>
+      <summary><![CDATA[Zovuni, 72 m2, floor 3/9, 3 room, 46,800,000 Դ]]></summary>
+      <content type="html"><![CDATA[The apartment has been completely renovated. The building is equipped with an elevator.]]></content>
+    `,
+    config
+  );
+  assert.equal(estateCard.id, "estate:122999");
+  assert.equal(estateCard.sourceLabel, "Estate.am");
+  assert.equal(estateCard.location, "Zovuni");
+  assert.equal(estateCard.priceUsd, 120000);
+  assert.equal(estateCard.areaSqm, 72);
+  assert.equal(estateCard.rooms, 3);
+  assert.equal(estateCard.floor.label, "3/9");
+  assert.equal(estateCard.condition, "ready");
+  assert.equal(estateCard.elevator, true);
+  assert.equal(telegramTest.listingUrl(estateCard), "https://www.estate.am/en/3-rooms-apartment-sale-in-zovuni-d122999");
+  assert.match(telegramTest.listingLine(estateCard), /Estate\.am/);
+  assert.match(telegramTest.listingDateDetail(estateCard), /обновлено 01\.07\.2026/);
+
+  const banaliHouse = banaliTest.parsePost(
+    {
+      id: "42e6a13e-bcc8-47c3-997a-c3d1ca203c04",
+      deal: "sell",
+      publicCode: "H47316",
+      propertyType: "house",
+      price: ["45000000"],
+      priceFull: [{ price: "45000000", currency: "051" }],
+      publishedAt: "2026-05-06T07:18:25.000000Z",
+      updatedToTop: "2026-06-30T05:00:01.000000Z",
+      address: "Yerevan, Arabkir",
+      district: "Arabkir",
+      rooms: ["3"],
+      floor: [null],
+      buildingFloors: "1",
+      area: ["81"],
+      heating: [["heating_central"]],
+      structureType: "new_building",
+      slug: { en: "sell/house/3-rooms/Yerevan/Arabkir/-H47316" },
+    },
+    config
+  );
+  assert.equal(banaliHouse.id, "banali:H47316");
+  assert.equal(banaliHouse.sourceLabel, "Banali.am");
+  assert.equal(banaliHouse.location, "Arabkir");
+  assert.equal(banaliHouse.priceUsd, 115385);
+  assert.equal(banaliHouse.areaSqm, 81);
+  assert.equal(banaliHouse.rooms, 3);
+  assert.equal(banaliHouse.floor, null);
+  assert.equal(telegramTest.listingUrl(banaliHouse), "https://banali.am/en/sell/house/3-rooms/Yerevan/Arabkir/-H47316");
+  assert.match(telegramTest.listingLine(banaliHouse), /Banali\.am/);
+  assert.match(
+    telegramTest.listingDateDetail(banaliHouse),
+    /обновлено 30\.06\.2026, 09:00, опубликовано 06\.05\.2026, 11:18/
+  );
+
+  const banaliSuburb = banaliTest.parsePost(
+    {
+      id: "7c2",
+      deal: "sell",
+      publicCode: "H46520",
+      propertyType: "house",
+      price: ["110000"],
+      priceFull: [{ price: "110000", currency: "840" }],
+      publishedAt: "2026-03-13T11:29:33.000000Z",
+      updatedToTop: "2026-06-29T07:10:55.000000Z",
+      address: "Kotayk, Zovuni",
+      district: "Zovuni",
+      rooms: ["5"],
+      area: ["132"],
+      slug: { en: "sell/house/5-rooms/Kotayk/Zovuni/-H46520" },
+    },
+    config
+  );
+  assert.equal(banaliSuburb.id, "banali:H46520");
+  assert.equal(banaliSuburb.location, "Zovuni");
+  assert.equal(banaliSuburb.priceUsd, 110000);
+  assert.equal(banaliSuburb.minutesToCenter, 24);
+  assert.deepEqual(
+    banaliTest.priceBucketsForConfig({ minPriceUsd: 0, maxPriceUsd: 120000 }),
+    ["usd~lt_40000", "usd~gte_40000-lte_60000", "usd~gte_60001-lte_80000", "usd~gte_80001-lte_100000", "usd~gte_100001-lte_150000"]
+  );
+
   await handleTelegramUpdate(config, state, update("/start", 101));
   assert.equal(activeSubscribers(state, config).length, 1);
   assert(fake.messages.some((message) => /Что делает этот бот/.test(message.text)));
@@ -150,7 +245,7 @@ async function main() {
   assert.equal(naturalScanCount, 1);
   assert.match(naturalLatestMessages, /Последние подходящие варианты/);
   assert.match(naturalLatestMessages, /Район: Avan/);
-  assert.match(naturalLatestMessages, /Параллельно запускаю проверку List\.am/);
+  assert.match(naturalLatestMessages, /Параллельно запускаю проверку источников/);
   assert.doesNotMatch(naturalLatestMessages, /Я помогу настроить/);
   state.lastUserScanAt = null;
 

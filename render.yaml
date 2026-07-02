@@ -51,6 +51,16 @@ services:
         value: "true"
       - key: MYREALTY_PAGES_PER_CATEGORY
         value: "5"
+      - key: ESTATE_FALLBACK_ENABLED
+        value: "true"
+      - key: BANALI_FALLBACK_ENABLED
+        value: "true"
+      - key: BANALI_PAGES_PER_CATEGORY
+        value: "5"
+      - key: BANALI_CONCURRENCY
+        value: "4"
+      - key: AMD_PER_USD
+        value: "390"
       - key: NOTIFY_PUBLISHED_WITHIN_DAYS
         value: "30"
       - key: NOTIFY_UPDATED_WITHIN_DAYS
@@ -71,9 +81,11 @@ services:
         value: "80"
       - key: TELEGRAM_RETRY_MAX_SECONDS
         value: "3"
+      - key: MAX_LISTINGS_CACHE
+        value: "1000"
       - key: SEND_INITIAL
         value: "false"
       - key: SCAN_ON_START
-        value: "false"
+        value: "true"
       - key: TELEGRAM_LONG_POLL_FALLBACK
         value: "true"

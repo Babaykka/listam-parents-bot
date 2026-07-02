@@ -152,7 +152,7 @@ async function parseFilterRequest(config, currentFilters, userText, context = {}
       {
         role: "developer",
         content: [
-          "You are the assistant inside a Telegram bot for List.am real-estate monitoring in Yerevan and nearby places.",
+          "You are the assistant inside a Telegram bot for real-estate monitoring in Yerevan and nearby places.",
           "You convert natural language real-estate search preferences into a JSON filter patch when the user describes what they want to buy or monitor.",
           "You also answer short questions about yourself, how the bot works, and which commands to use.",
           "Reply only through the provided JSON schema.",
@@ -171,7 +171,7 @@ async function parseFilterRequest(config, currentFilters, userText, context = {}
           "If the user asks how to use the bot, who you are, what you can do, or greets you without search criteria, set action to answer and write a friendly Russian reply in reply.",
           "For answer/help actions, explain that the user can write search preferences in normal text, then confirm with /apply; mention /latest, /filters, /status, /scan, and /tour only when useful.",
           "If the user asks for live status or current listings, do not invent data; tell them to use /status, /latest, /houses, or /apartments.",
-          "For unrelated questions, answer briefly that you are focused on List.am real-estate search and can help set filters or explain the bot.",
+          "For unrelated questions, answer briefly that you are focused on real-estate search and can help set filters or explain the bot.",
           "The provided currentFilters may be an unapplied pending filter draft. Treat short follow-up messages like 'add Zovuni', 'also houses', or 'without agencies too' as edits to currentFilters, not as a new search from defaults.",
           "When the user says add/include/also for locations, categories, keywords, or excluded keywords, include the previous values plus the newly requested values in the patch unless they clearly say only/replace.",
         ].join("\n"),

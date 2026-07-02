@@ -1,6 +1,6 @@
 const { activeSubscribers, deactivateSubscriber, defaultFilters, normalizeFilters, upsertSubscriber, writeState } = require("./state");
 const { parseFilterRequest } = require("./aiFilters");
-const { shouldNotifyListing } = require("./listingFreshness");
+const { compareListingActivity, shouldNotifyListing } = require("./listingFreshness");
 const { clamp, escapeHtml, normalizeText, sleep } = require("./utils");
 
 const YEREVAN_DATE_FORMATTER = new Intl.DateTimeFormat("ru-RU", {
@@ -341,7 +341,7 @@ function matchingListings(config, subscriber, listings, limit = 10, mode = "late
   if (mode === "top") {
     filtered.sort((a, b) => scoreOf(b) - scoreOf(a) || a.priceUsd - b.priceUsd);
   } else {
-    filtered.sort((a, b) => String(b.discoveredAt || b.scannedAt).localeCompare(String(a.discoveredAt || a.scannedAt)));
+    filtered.sort(compareListingActivity);
   }
   return filtered.slice(0, limit);
 }
@@ -415,7 +415,7 @@ async function triggerManualScan(config, state, chatId, hooks = {}, options = {}
   await sendMessage(
     config,
     chatId,
-    options.message || "Запускаю внеочередную проверку. Если List.am покажет проверку браузера, я сообщу об этом в /status."
+    options.message || "Запускаю внеочередную проверку источников. Если один сайт временно не отдаст объявления, остальные всё равно проверю."
   );
   Promise.resolve(hooks.scanNow?.()).catch((error) => console.error(`[telegram] manual scan failed: ${error.message}`));
   return true;
@@ -444,13 +444,13 @@ async function handleNaturalListingRequest(config, state, subscriber, chat, text
     await sendMessage(
       config,
       chat.id,
-      "В сохраненной базе пока нет объявлений под эти фильтры. Я могу проверить List.am сейчас и пришлю новые подходящие варианты автоматически."
+      "В сохраненной базе пока нет объявлений под эти фильтры. Я могу проверить источники сейчас и пришлю новые подходящие варианты автоматически."
     );
   }
 
   if (request.shouldScan) {
     await triggerManualScan(config, state, chat.id, hooks, {
-      message: "Параллельно запускаю проверку List.am. Если появятся новые подходящие объявления, пришлю их автоматически.",
+      message: "Параллельно запускаю проверку источников. Если появятся новые подходящие объявления, пришлю их автоматически.",
     });
   }
 
@@ -569,7 +569,7 @@ function commandKeyboard() {
 function tourText(config) {
   return [
     `<b>Что делает этот бот</b>`,
-    `Я проверяю новые объявления List.am по недвижимости и присылаю сюда только те варианты, которые подходят под твои фильтры.`,
+    `Я проверяю новые объявления по недвижимости из нескольких источников и присылаю сюда только те варианты, которые подходят под твои фильтры.`,
     "",
     `<b>Самый простой старт</b>`,
     `1. Напиши, что ищешь, обычным текстом.`,
@@ -586,7 +586,7 @@ function tourText(config) {
     `/latest - уже найденные варианты`,
     `/filters - что сейчас ищем`,
     `/status - работает ли монитор`,
-    `/scan - проверить List.am прямо сейчас`,
+    `/scan - проверить источники прямо сейчас`,
     "",
     `По умолчанию бюджет до ${money(config.maxPriceUsd)}. Команды знать не нужно: можно писать обычным текстом.`,
   ].join("\n");
@@ -596,7 +596,7 @@ function helpText(config, state) {
   const username = state.bot?.username ? `@${state.bot.username}` : "бота";
   return [
     `<b>Как работает бот</b>`,
-    `Бот периодически проверяет List.am. Если появилось новое объявление под твои фильтры, он присылает его сюда.`,
+    `Бот периодически проверяет несколько сайтов с недвижимостью. Если появилось новое объявление под твои фильтры, он присылает его сюда.`,
     "",
     `<b>Как настроить проще всего</b>`,
     `Просто напиши обычным текстом, что нужно:`,
@@ -830,7 +830,7 @@ function aiSetupText(config) {
 
 function assistantAnswerFallback(config) {
   return [
-    `Я бот для поиска недвижимости на List.am.`,
+    `Я бот для поиска недвижимости из нескольких источников.`,
     `Ты можешь написать обычным текстом, что ищешь, а я превращу это в фильтры и попрошу подтвердить через /apply.`,
     "",
     `Пример: дом до ${money(config.maxPriceUsd)}, до 30 минут от центра, без агентств.`,
@@ -934,14 +934,14 @@ async function configureTelegram(config, state) {
   };
 
   await setupTelegramApi(config, "setMyName", {
-    name: "List.am Real Estate Bot",
+    name: "Yerevan Real Estate Bot",
   });
   await setupTelegramApi(config, "setMyShortDescription", {
-    short_description: "Новые квартиры и дома с List.am. Просто напиши, что ищешь.",
+    short_description: "Новые квартиры и дома из нескольких источников. Просто напиши, что ищешь.",
   });
   await setupTelegramApi(config, "setMyDescription", {
     description:
-      "Бот проверяет новые объявления List.am по недвижимости и присылает совпадения. Настройка простая: напиши обычным текстом, что ищешь, например 'дом до 120к, до 30 минут от центра'.",
+      "Бот проверяет новые объявления по недвижимости из нескольких источников и присылает совпадения. Настройка простая: напиши обычным текстом, что ищешь, например 'дом до 120к, до 30 минут от центра'.",
   });
   await setupTelegramApi(config, "setMyCommands", {
     commands: [
@@ -1067,7 +1067,7 @@ async function handleCommand(config, state, message, hooks = {}) {
       [
         "Тестовое уведомление доставлено.",
         "Если видишь это сообщение, Telegram и подписка работают.",
-        blocked ? "Важно: List.am сейчас показывает проверку браузера, поэтому новые объявления могут задержаться. Подробности: /status" : null,
+        blocked ? "Важно: один из источников сейчас показывает проверку браузера, поэтому часть объявлений может задержаться. Подробности: /status" : null,
       ]
         .filter(Boolean)
         .join("\n")
@@ -1306,16 +1306,29 @@ async function handleCommand(config, state, message, hooks = {}) {
     const expectedPages = config.categories.length * config.scanPagesPerCategory;
     const listamSource = state.lastScan?.sources?.find((source) => source.source === "listam");
     const myrealtySource = state.lastScan?.sources?.find((source) => source.source === "myrealty");
+    const estateSource = state.lastScan?.sources?.find((source) => source.source === "estate");
+    const sourceNames = { listam: "List.am", myrealty: "MyRealty", estate: "Estate.am", banali: "Banali.am" };
+    const sourcesLine = state.lastScan?.sources?.length
+      ? `Источники: ${state.lastScan.sources
+          .map((source) => {
+            const label = sourceNames[source.source] || source.source;
+            const suffix = source.blocked ? " (проверка браузера)" : source.error ? " (ошибка)" : "";
+            return `${label}: ${source.listings}${suffix}`;
+          })
+          .join(", ")}`
+      : null;
     const lastScanLooksBlocked =
       state.lastScan?.blocked ||
       (state.lastScan && !state.lastScan.error && Number(state.lastScan.scanned || 0) === 0 && Number(state.lastScan.skipped || 0) >= expectedPages);
-    let scannerLine = "List.am отвечает нормально.";
-    if (listamSource?.blocked && Number(myrealtySource?.listings || 0) > 0) {
-      scannerLine = `List.am сейчас показывает проверку браузера, но резервный MyRealty работает: в последнем скане найдено ${myrealtySource.listings}.`;
+    const banaliSource = state.lastScan?.sources?.find((source) => source.source === "banali");
+    const fallbackFound = Number(myrealtySource?.listings || 0) + Number(estateSource?.listings || 0) + Number(banaliSource?.listings || 0);
+    let scannerLine = "Источники отвечают нормально.";
+    if (listamSource?.blocked && fallbackFound > 0) {
+      scannerLine = `List.am сейчас показывает проверку браузера, но другие источники работают: в последнем скане найдено ${fallbackFound}.`;
     } else if (blockedStreak) {
-      scannerLine = "List.am сейчас показывает проверку браузера. Новые объявления могут задержаться, но бот попробует снова автоматически.";
+      scannerLine = "Один из источников сейчас показывает проверку браузера. Новые объявления могут задержаться, но бот попробует снова автоматически.";
     } else if (lastScanLooksBlocked) {
-      scannerLine = "Последняя проверка не получила объявления. Похоже, List.am показал проверку браузера.";
+      scannerLine = "Последняя проверка не получила объявления. Похоже, один из источников показал проверку браузера.";
     }
     const scheduleLine = blockedStreak
       ? `Следующая попытка примерно через ${currentDelayMinutes} мин. Когда сайт снова откроется, вернусь к проверке каждые ${config.scanIntervalMinutes} мин.`
@@ -1328,6 +1341,7 @@ async function handleCommand(config, state, message, hooks = {}) {
         `Telegram: доставка до этого чата работает.`,
         `Подписчиков: ${activeCount}`,
         scannerLine,
+        sourcesLine,
         scheduleLine,
         `Последний скан: ${escapeHtml(lastScan)}`,
         lastUserScan,

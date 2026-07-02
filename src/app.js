@@ -1,6 +1,8 @@
 const http = require("http");
 const { loadConfig } = require("./config");
 const { compareListingActivity, isSeenListing, nextSeenIds } = require("./listingFreshness");
+const { scanBanali } = require("./banali");
+const { scanEstate } = require("./estate");
 const { scanListAm } = require("./listam");
 const { scanMyRealty } = require("./myrealty");
 const { activeSubscribers, deactivateSubscriber, readState, writeState } = require("./state");
@@ -20,15 +22,16 @@ let server = null;
 let nextScanTimer = null;
 let telegramPollTimer = null;
 
-const RELEASE_NOTICE_ID = "2026-06-24-area-filter-ux";
+const RELEASE_NOTICE_ID = "2026-07-02-banali-source";
 const RELEASE_NOTICE_TEXT = [
   "<b>Обновление бота</b>",
-  "Сделал настройку фильтров удобнее.",
+  "Добавил больше источников объявлений.",
   "",
   "Что изменилось:",
-  "- 70квм+ теперь понимается как площадь от 70 м²;",
-  "- в фильтрах будет написано от 70 м², а не просто 70 м²;",
-  "- экран фильтров стал короче: убрал строки вроде любой, нет и 0/10;",
+  "- бот смотрит List.am, MyRealty, Estate.am и Banali.am;",
+  "- если List.am показывает проверку браузера, бот всё равно продолжает искать на других сайтах;",
+  "- вариантов должно стать заметно больше, особенно по квартирам и домам до $120-130k;",
+  "- в карточках видно, когда объявление опубликовано и когда его подняли/обновили;",
   "- кнопка /start ниже обновит меню и подсказки.",
   "",
   "Чтобы обновить меню, нажми /start.",
@@ -150,27 +153,53 @@ function listamBlocked(result, config) {
   );
 }
 
-function combineScanResults(primary, fallback) {
-  if (!fallback) {
-    return {
-      ...primary,
-      sourceResults: [{ source: "listam", listings: primary.listings.length, skipped: primary.skipped.length, blocked: primary.blocked }],
-    };
-  }
+function scanResultSummary(source, result) {
+  return {
+    source,
+    listings: result.listings.length,
+    skipped: result.skipped.length,
+    blocked: Boolean(result.blocked),
+    error: result.error || null,
+  };
+}
 
+function emptyScanResult(source, error) {
+  return {
+    listings: [],
+    skipped: [{ source, error: error.message }],
+    scannedAt: new Date().toISOString(),
+    locations: [],
+    blocked: false,
+    error: error.message,
+  };
+}
+
+async function safeScanSource(source, scanner, scanConfig) {
+  try {
+    return await scanner(scanConfig);
+  } catch (error) {
+    console.error(`[scan] ${source} failed: ${error.stack || error.message}`);
+    return emptyScanResult(source, error);
+  }
+}
+
+function combineScanResults(primary, fallbacks = []) {
+  const sources = [primary, ...fallbacks].filter(Boolean);
   const byId = new Map();
-  for (const item of [...primary.listings, ...fallback.listings]) byId.set(item.id, item);
+  for (const result of sources) {
+    for (const item of result.listings) byId.set(item.id, item);
+  }
   const listings = Array.from(byId.values()).sort(compareListingActivity);
 
   return {
     listings,
-    skipped: [...primary.skipped, ...fallback.skipped],
+    skipped: sources.flatMap((result) => result.skipped),
     scannedAt: new Date().toISOString(),
-    locations: uniqueLocations([...primary.locations, ...fallback.locations]),
-    blocked: primary.blocked && fallback.listings.length === 0,
+    locations: uniqueLocations(sources.flatMap((result) => result.locations)),
+    blocked: primary.blocked && fallbacks.every((result) => result.listings.length === 0),
     sourceResults: [
-      { source: "listam", listings: primary.listings.length, skipped: primary.skipped.length, blocked: primary.blocked },
-      { source: "myrealty", listings: fallback.listings.length, skipped: fallback.skipped.length, blocked: false },
+      scanResultSummary("listam", primary),
+      ...fallbacks.map((result) => scanResultSummary(result.sourceName || "source", result)),
     ],
   };
 }
@@ -181,15 +210,38 @@ function uniqueLocations(values) {
 
 async function scanSources(config, state) {
   const scanConfig = { ...config, maxPriceUsd: sourceMaxPriceUsd(config, state) };
-  const listam = await scanListAm(scanConfig);
+  const listam = await safeScanSource("listam", scanListAm, scanConfig);
   listam.blocked = listamBlocked(listam, scanConfig);
 
-  if (!config.myrealtyFallbackEnabled || (listam.listings.length > 0 && !listam.blocked)) {
-    return combineScanResults(listam, null);
+  const fallbackJobs = [];
+  if (config.myrealtyFallbackEnabled) {
+    fallbackJobs.push(
+      safeScanSource("myrealty", scanMyRealty, scanConfig).then((result) => ({
+        ...result,
+        sourceName: "myrealty",
+      }))
+    );
+  }
+  if (config.estateFallbackEnabled) {
+    fallbackJobs.push(
+      safeScanSource("estate", scanEstate, scanConfig).then((result) => ({
+        ...result,
+        sourceName: "estate",
+      }))
+    );
+  }
+  if (config.banaliFallbackEnabled) {
+    fallbackJobs.push(
+      safeScanSource("banali", scanBanali, scanConfig).then((result) => ({
+        ...result,
+        sourceName: "banali",
+      }))
+    );
   }
 
-  const fallback = await scanMyRealty(scanConfig);
-  return combineScanResults(listam, fallback);
+  const fallbacks = await Promise.all(fallbackJobs);
+
+  return combineScanResults(listam, fallbacks);
 }
 
 async function runScanCycle(reason = "schedule") {
@@ -251,7 +303,7 @@ async function runScanCycle(reason = "schedule") {
 
     for (const subscriber of activeSubscribers(state, config)) {
       if (!config.adminChatIds.has(String(subscriber.id))) continue;
-      await sendMessage(config, subscriber.id, `Ошибка скана List.am:\n${error.message}`).catch((sendError) =>
+      await sendMessage(config, subscriber.id, `Ошибка скана объявлений:\n${error.message}`).catch((sendError) =>
         console.error(`[telegram] failed to send scan error: ${sendError.message}`)
       );
     }
