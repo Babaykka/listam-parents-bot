@@ -308,6 +308,8 @@ function parseItem(raw, category, config) {
   const published = parsePublishedDate(text);
   const item = {
     id,
+    source: "listam",
+    sourceLabel: "List.am",
     kind: category.label,
     kindKey: category.key,
     title: cleanTitle(text, price, config),
@@ -427,6 +429,7 @@ async function scanListAm(config, logger = console) {
 }
 
 module.exports = {
+  parseListAmItem: parseItem,
   scanListAm,
   __test: {
     parseItem,

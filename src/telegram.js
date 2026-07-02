@@ -1307,12 +1307,17 @@ async function handleCommand(config, state, message, hooks = {}) {
     const listamSource = state.lastScan?.sources?.find((source) => source.source === "listam");
     const myrealtySource = state.lastScan?.sources?.find((source) => source.source === "myrealty");
     const estateSource = state.lastScan?.sources?.find((source) => source.source === "estate");
-    const sourceNames = { listam: "List.am", myrealty: "MyRealty", estate: "Estate.am", banali: "Banali.am" };
+    const sourceNames = { listam: "List.am", listam_feed: "List.am feed", myrealty: "MyRealty", estate: "Estate.am", banali: "Banali.am" };
     const sourcesLine = state.lastScan?.sources?.length
       ? `Источники: ${state.lastScan.sources
           .map((source) => {
             const label = sourceNames[source.source] || source.source;
-            const suffix = source.blocked ? " (проверка браузера)" : source.error ? " (ошибка)" : "";
+            const details = [];
+            if (source.blocked) details.push("проверка браузера");
+            if (source.error) details.push("ошибка");
+            if (source.probeMode === "quick") details.push("быстрая проверка");
+            if (source.durationMs) details.push(`${Math.round(source.durationMs / 1000)}с`);
+            const suffix = details.length ? ` (${details.join(", ")})` : "";
             return `${label}: ${source.listings}${suffix}`;
           })
           .join(", ")}`

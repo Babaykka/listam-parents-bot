@@ -39,6 +39,14 @@ services:
         value: "60"
       - key: LISTAM_CHALLENGE_MAX_SECONDS
         value: "45"
+      - key: LISTAM_QUICK_PAGE_WAIT_SECONDS
+        value: "12"
+      - key: LISTAM_QUICK_CHALLENGE_MAX_SECONDS
+        value: "8"
+      - key: LISTAM_FULL_PROBE_INTERVAL_MINUTES
+        value: "60"
+      - key: LISTAM_FEED_URLS
+        value: ""
       - key: NAVIGATION_TIMEOUT_MS
         value: "75000"
       - key: SCAN_ISSUE_ALERTS

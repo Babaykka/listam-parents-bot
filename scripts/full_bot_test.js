@@ -6,6 +6,7 @@ const { activeSubscribers, readState, writeState } = require("../src/state");
 const freshnessTest = require("../src/listingFreshness");
 const { __test: banaliTest } = require("../src/banali");
 const { __test: estateTest } = require("../src/estate");
+const { __test: listamFeedTest } = require("../src/listamFeed");
 const { __test: listamTest } = require("../src/listam");
 const { __test: myrealtyTest } = require("../src/myrealty");
 const { createFakeTelegram, listing, telegramError, testConfig, update } = require("./test_helpers");
@@ -18,10 +19,14 @@ async function main() {
   assert.equal(config.estateFallbackEnabled, true);
   assert.equal(config.banaliFallbackEnabled, true);
   assert.equal(config.banaliPagesPerCategory, 5);
+  assert.equal(config.listamQuickChallengeWaitSeconds, 1);
+  assert.deepEqual(config.listamFeedUrls, []);
   assert.match(renderYaml, /key: MYREALTY_PAGES_PER_CATEGORY\s*\n\s*value: "5"/);
   assert.match(renderYaml, /key: ESTATE_FALLBACK_ENABLED\s*\n\s*value: "true"/);
   assert.match(renderYaml, /key: BANALI_FALLBACK_ENABLED\s*\n\s*value: "true"/);
   assert.match(renderYaml, /key: BANALI_PAGES_PER_CATEGORY\s*\n\s*value: "5"/);
+  assert.match(renderYaml, /key: LISTAM_QUICK_CHALLENGE_MAX_SECONDS\s*\n\s*value: "8"/);
+  assert.match(renderYaml, /key: LISTAM_FEED_URLS\s*\n\s*value: ""/);
   const state = readState(config);
   state.listings = [
     listing(100001, { kindKey: "apartment", location: "Avan", priceUsd: 90000, rooms: 2 }),
@@ -66,6 +71,38 @@ async function main() {
     "опубликовано 20.06.2026"
   );
   assert.match(telegramTest.listingLine({ ...listing(123458), publishedAt: null }), /найдено ботом/);
+
+  const feedJsonItems = listamFeedTest.parseFeedText(
+    JSON.stringify({
+      listings: [
+        {
+          id: "765432",
+          title: "$99,000 3 room apartment, 75 sq.m., 2/9 floor Elevator Available Avan, Yerevan Posted Today 10:00",
+        },
+      ],
+    }),
+    config
+  );
+  assert.equal(feedJsonItems.length, 1);
+  assert.equal(feedJsonItems[0].id, "765432");
+  assert.equal(feedJsonItems[0].sourceLabel, "List.am");
+  assert.equal(feedJsonItems[0].location, "Avan");
+  assert.equal(feedJsonItems[0].areaSqm, 75);
+
+  const feedXmlItems = listamFeedTest.parseFeedText(
+    `
+      <rss><channel><item>
+        <link>https://www.list.am/item/765433</link>
+        <title><![CDATA[$115,000 4 room house, 120 sq.m., Abovyan, Kotayk Posted Yesterday 16:20]]></title>
+        <description><![CDATA[individual heating, natural gas]]></description>
+      </item></channel></rss>
+    `,
+    config
+  );
+  assert.equal(feedXmlItems.length, 1);
+  assert.equal(feedXmlItems[0].id, "765433");
+  assert.equal(feedXmlItems[0].kindKey, "house");
+  assert.equal(feedXmlItems[0].location, "Abovyan");
 
   const myrealtyCard = myrealtyTest.parseCard(
     {

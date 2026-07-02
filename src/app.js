@@ -4,6 +4,7 @@ const { compareListingActivity, isSeenListing, nextSeenIds } = require("./listin
 const { scanBanali } = require("./banali");
 const { scanEstate } = require("./estate");
 const { scanListAm } = require("./listam");
+const { scanListAmFeed } = require("./listamFeed");
 const { scanMyRealty } = require("./myrealty");
 const { activeSubscribers, deactivateSubscriber, readState, writeState } = require("./state");
 const {
@@ -22,15 +23,15 @@ let server = null;
 let nextScanTimer = null;
 let telegramPollTimer = null;
 
-const RELEASE_NOTICE_ID = "2026-07-02-banali-source";
+const RELEASE_NOTICE_ID = "2026-07-02-listam-resilience";
 const RELEASE_NOTICE_TEXT = [
   "<b>Обновление бота</b>",
-  "Добавил больше источников объявлений.",
+  "Улучшил проверку List.am и источников.",
   "",
   "Что изменилось:",
-  "- бот смотрит List.am, MyRealty, Estate.am и Banali.am;",
-  "- если List.am показывает проверку браузера, бот всё равно продолжает искать на других сайтах;",
-  "- вариантов должно стать заметно больше, особенно по квартирам и домам до $120-130k;",
+  "- если List.am показывает проверку браузера, бот быстрее переключается на другие источники;",
+  "- MyRealty, Banali.am и другие источники теперь проверяются параллельно с List.am;",
+  "- добавил готовый вход для официального List.am feed/API, если сайт даст доступ;",
   "- в карточках видно, когда объявление опубликовано и когда его подняли/обновили;",
   "- кнопка /start ниже обновит меню и подсказки.",
   "",
@@ -160,6 +161,8 @@ function scanResultSummary(source, result) {
     skipped: result.skipped.length,
     blocked: Boolean(result.blocked),
     error: result.error || null,
+    durationMs: result.durationMs || null,
+    probeMode: result.probeMode || null,
   };
 }
 
@@ -175,11 +178,13 @@ function emptyScanResult(source, error) {
 }
 
 async function safeScanSource(source, scanner, scanConfig) {
+  const startedAt = Date.now();
   try {
-    return await scanner(scanConfig);
+    const result = await scanner(scanConfig);
+    return { ...result, durationMs: Date.now() - startedAt };
   } catch (error) {
     console.error(`[scan] ${source} failed: ${error.stack || error.message}`);
-    return emptyScanResult(source, error);
+    return { ...emptyScanResult(source, error), durationMs: Date.now() - startedAt };
   }
 }
 
@@ -208,12 +213,51 @@ function uniqueLocations(values) {
   return Array.from(new Set(values.filter(Boolean)));
 }
 
+function lastListamSource(state) {
+  return state.lastScan?.sources?.find((source) => source.source === "listam") || null;
+}
+
+function listamProbeMode(config, state) {
+  const listamSource = lastListamSource(state);
+  if (!listamSource?.blocked) return "full";
+
+  const lastFullAt = Date.parse(state.scanHealth?.lastListamFullProbeAt || "");
+  if (!Number.isFinite(lastFullAt)) return "full";
+
+  const elapsedMinutes = (Date.now() - lastFullAt) / 60000;
+  return elapsedMinutes >= config.listamFullProbeIntervalMinutes ? "full" : "quick";
+}
+
+function listamConfigForProbe(config, probeMode) {
+  if (probeMode !== "quick") return config;
+  return {
+    ...config,
+    scanPageWaitSeconds: Math.min(config.scanPageWaitSeconds, config.listamQuickPageWaitSeconds),
+    challengeWaitSeconds: Math.min(config.challengeWaitSeconds, config.listamQuickChallengeWaitSeconds),
+  };
+}
+
 async function scanSources(config, state) {
   const scanConfig = { ...config, maxPriceUsd: sourceMaxPriceUsd(config, state) };
-  const listam = await safeScanSource("listam", scanListAm, scanConfig);
-  listam.blocked = listamBlocked(listam, scanConfig);
+  const probeMode = listamProbeMode(config, state);
+  const listamJob = safeScanSource("listam", scanListAm, listamConfigForProbe(scanConfig, probeMode)).then((result) => {
+    result.blocked = listamBlocked(result, scanConfig);
+    return {
+      ...result,
+      sourceName: "listam",
+      probeMode,
+    };
+  });
 
   const fallbackJobs = [];
+  if (config.listamFeedUrls.length > 0) {
+    fallbackJobs.push(
+      safeScanSource("listam_feed", scanListAmFeed, scanConfig).then((result) => ({
+        ...result,
+        sourceName: "listam_feed",
+      }))
+    );
+  }
   if (config.myrealtyFallbackEnabled) {
     fallbackJobs.push(
       safeScanSource("myrealty", scanMyRealty, scanConfig).then((result) => ({
@@ -239,7 +283,7 @@ async function scanSources(config, state) {
     );
   }
 
-  const fallbacks = await Promise.all(fallbackJobs);
+  const [listam, ...fallbacks] = await Promise.all([listamJob, ...fallbackJobs]);
 
   return combineScanResults(listam, fallbacks);
 }
@@ -260,6 +304,7 @@ async function runScanCycle(reason = "schedule") {
     const result = await scanSources(config, state);
     const newListings = result.listings.filter((item) => !isSeenListing(config, oldSeen, item, now));
     const challengeBlocked = Boolean(result.blocked);
+    const listamSource = result.sourceResults?.find((source) => source.source === "listam");
 
     state.seenIds = nextSeenIds(state.seenIds || [], result.listings, config.maxSeenIds);
     state.listings = mergeListings(state.listings, result.listings, config);
@@ -275,6 +320,8 @@ async function runScanCycle(reason = "schedule") {
       locations: result.locations,
     };
     updateScanHealth(state, config, challengeBlocked);
+    if (listamSource?.probeMode === "full") state.scanHealth.lastListamFullProbeAt = result.scannedAt;
+    if (listamSource?.blocked) state.scanHealth.lastListamBlockedAt = result.scannedAt;
 
     writeState(config, state);
     console.log(
