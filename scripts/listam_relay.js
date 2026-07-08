@@ -12,10 +12,13 @@
 //   RELAY_INTERVAL_MINUTES  - 0 (default) = run once; >0 = loop
 //   RELAY_PAGES_PER_CATEGORY- List.am pages per category, default 2
 
+const fs = require("fs");
+const path = require("path");
 const { loadConfig } = require("../src/config");
 const { scanListAm } = require("../src/listam");
 
 const baseConfig = loadConfig();
+const PENDING_FILE = path.join(baseConfig.dataDir, "relay-pending.json");
 const targetUrl = (process.env.RELAY_TARGET_URL || "https://listam-parents-bot.onrender.com").replace(/\/+$/, "");
 const intervalMinutes = Number(process.env.RELAY_INTERVAL_MINUTES || 0);
 const pagesPerCategory = Number(process.env.RELAY_PAGES_PER_CATEGORY || 2);
@@ -35,7 +38,7 @@ function relayScanConfig() {
   };
 }
 
-async function pushListings(listings) {
+async function pushListingsOnce(listings) {
   const response = await fetch(`${targetUrl}/ingest/listings`, {
     method: "POST",
     headers: {
@@ -51,15 +54,61 @@ async function pushListings(listings) {
   return data;
 }
 
+// The bot may be mid-deploy when we push; a successful List.am scan is too
+// valuable to lose, so retry and keep a local pending buffer between runs.
+async function pushListings(listings) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      return await pushListingsOnce(listings);
+    } catch (error) {
+      lastError = error;
+      console.warn(`[relay] push attempt ${attempt} failed: ${error.message}`);
+      if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 30000));
+    }
+  }
+  throw lastError;
+}
+
+function savePending(listings) {
+  fs.mkdirSync(baseConfig.dataDir, { recursive: true });
+  fs.writeFileSync(PENDING_FILE, JSON.stringify({ scannedAt: new Date().toISOString(), listings }));
+}
+
+function loadPending() {
+  try {
+    const data = JSON.parse(fs.readFileSync(PENDING_FILE, "utf8"));
+    const ageMinutes = (Date.now() - Date.parse(data.scannedAt || "")) / 60000;
+    if (!Number.isFinite(ageMinutes) || ageMinutes > Number(baseConfig.relayMaxAgeMinutes || 180)) return null;
+    return Array.isArray(data.listings) && data.listings.length > 0 ? data.listings : null;
+  } catch {
+    return null;
+  }
+}
+
+function clearPending() {
+  fs.rmSync(PENDING_FILE, { force: true });
+}
+
 async function runOnce() {
   console.log(`[relay] scanning List.am locally (${pagesPerCategory} page(s) per category)`);
   const result = await scanListAm(relayScanConfig());
   console.log(`[relay] scanned: ${result.listings.length} listings, skipped pages: ${result.skipped.length}`);
-  if (result.listings.length === 0) {
+
+  let listings = result.listings;
+  if (listings.length > 0) {
+    savePending(listings);
+  } else {
+    listings = loadPending() || [];
+    if (listings.length > 0) console.log(`[relay] scan blocked, pushing ${listings.length} buffered listings from the previous successful scan`);
+  }
+  if (listings.length === 0) {
     console.log("[relay] nothing to push (List.am may be showing the browser check here too, will retry next run)");
     return;
   }
-  const data = await pushListings(result.listings);
+
+  const data = await pushListings(listings);
+  clearPending();
   console.log(`[relay] pushed to ${targetUrl}: accepted ${data.accepted}, dropped ${data.dropped}`);
 }
 
