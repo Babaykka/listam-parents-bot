@@ -7,6 +7,8 @@ const { scanEstate } = require("./estate");
 const { scanListAm } = require("./listam");
 const { scanListAmFeed } = require("./listamFeed");
 const { scanMyRealty } = require("./myrealty");
+const crypto = require("crypto");
+const { relayFallbackResult, sanitizeIngestPayload, storeRelayListings } = require("./ingest");
 const { coreSourcesDown, updateSourceHealth } = require("./sourceHealth");
 const { activeSubscribers, deactivateSubscriber, readState, writeState } = require("./state");
 const {
@@ -93,6 +95,12 @@ function healthPayload() {
     lastScan: state.lastScan,
     scanHealth: state.scanHealth || null,
     sources: state.scanHealth?.sources || {},
+    relay: Object.fromEntries(
+      Object.entries(state.relay || {}).map(([source, entry]) => [
+        source,
+        { receivedAt: entry.receivedAt, listings: entry.listings?.length || 0 },
+      ])
+    ),
     coreSourcesDown: coreSourcesDown(state),
     scanSchedule: scanSchedulePayload(),
     nextScanAt: state.nextScanAt,
@@ -264,6 +272,9 @@ async function scanSources(config, state) {
   }
 
   const [listam, ...fallbacks] = await Promise.all([listamJob, ...fallbackJobs]);
+
+  const relayResult = relayFallbackResult(state, config);
+  if (relayResult) fallbacks.push(relayResult);
 
   return combineScanResults(listam, fallbacks);
 }
@@ -468,6 +479,47 @@ async function maybeSendReleaseNotice() {
   console.log(`[notice] sent release notice ${RELEASE_NOTICE_ID} to ${recipients.length} subscribers`);
 }
 
+function ingestTokenValid(req) {
+  if (!config.ingestToken) return false;
+  const provided = String(req.headers["x-ingest-token"] || "");
+  const expected = Buffer.from(config.ingestToken);
+  const actual = Buffer.from(provided);
+  return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
+}
+
+async function handleIngest(req, res) {
+  if (!config.ingestToken) {
+    json(res, 403, { ok: false, error: "ingest is disabled: INGEST_TOKEN is not set" });
+    return;
+  }
+  if (!ingestTokenValid(req)) {
+    json(res, 401, { ok: false, error: "bad ingest token" });
+    return;
+  }
+
+  const body = await readRequestBody(req);
+  let payload;
+  try {
+    payload = JSON.parse(body || "{}");
+  } catch {
+    json(res, 400, { ok: false, error: "invalid JSON" });
+    return;
+  }
+
+  const result = sanitizeIngestPayload(payload, { ...config, maxPriceUsd: sourceMaxPriceUsd(config, state) });
+  if (result.error) {
+    json(res, 400, { ok: false, error: result.error });
+    return;
+  }
+
+  storeRelayListings(state, result.source, result.listings);
+  writeState(config, state);
+  console.log(`[ingest] ${result.source}: accepted ${result.listings.length}, dropped ${result.dropped}`);
+
+  setTimeout(() => runScanCycle("relay-ingest").catch((error) => console.error(`[ingest] scan failed: ${error.message}`)), 100);
+  json(res, 200, { ok: true, source: result.source, accepted: result.listings.length, dropped: result.dropped });
+}
+
 async function handleWebhook(req, res) {
   if (config.telegramWebhookSecret && req.headers["x-telegram-bot-api-secret-token"] !== config.telegramWebhookSecret) {
     json(res, 401, { ok: false, error: "bad webhook secret" });
@@ -492,6 +544,11 @@ function createServer() {
 
       if (req.method === "POST" && url.pathname === "/telegram/webhook") {
         await handleWebhook(req, res);
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/ingest/listings") {
+        await handleIngest(req, res);
         return;
       }
 

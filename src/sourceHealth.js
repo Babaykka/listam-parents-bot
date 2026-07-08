@@ -1,6 +1,7 @@
 const SOURCE_LABELS = {
   listam: "List.am",
   listam_feed: "List.am feed",
+  listam_relay: "List.am (relay)",
   myrealty: "MyRealty",
   estate: "Estate.am",
   banali: "Banali.am",

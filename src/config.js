@@ -154,6 +154,8 @@ function loadConfig() {
     listamQuickChallengeWaitSeconds: envNumber("LISTAM_QUICK_CHALLENGE_MAX_SECONDS", 8),
     listamFullProbeIntervalMinutes: envNumber("LISTAM_FULL_PROBE_INTERVAL_MINUTES", 60),
     listamFeedUrls: envList("LISTAM_FEED_URLS", []),
+    ingestToken: process.env.INGEST_TOKEN || "",
+    relayMaxAgeMinutes: envNumber("RELAY_MAX_AGE_MINUTES", 180),
     scanIssueAlerts: envBool("SCAN_ISSUE_ALERTS", true),
     scanIssueAlertAfter: envNumber("SCAN_ISSUE_ALERT_AFTER", 3),
     scanIssueAlertCooldownMinutes: envNumber("SCAN_ISSUE_ALERT_COOLDOWN_MINUTES", 360),

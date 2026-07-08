@@ -47,6 +47,10 @@ services:
         value: "60"
       - key: LISTAM_FEED_URLS
         value: ""
+      - key: INGEST_TOKEN
+        generateValue: true
+      - key: RELAY_MAX_AGE_MINUTES
+        value: "180"
       - key: NAVIGATION_TIMEOUT_MS
         value: "75000"
       - key: SCAN_ISSUE_ALERTS

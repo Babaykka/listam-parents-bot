@@ -9,6 +9,7 @@ const { dedupeListings, isLikelyDuplicate } = require("../src/dedupe");
 const { mergeListings, visibleListings } = require("../src/listingStore");
 const { computeBaselines, explainListing, valueScore } = require("../src/ranking");
 const { coreSourcesDown, isSourceDegraded, sourceStatusEntries, updateSourceHealth } = require("../src/sourceHealth");
+const { relayFallbackResult, sanitizeIngestPayload, storeRelayListings } = require("../src/ingest");
 const { __test: estateTest } = require("../src/estate");
 const { __test: listamFeedTest } = require("../src/listamFeed");
 const { __test: listamTest } = require("../src/listam");
@@ -336,6 +337,58 @@ async function main() {
   assert.equal(estateEntry.label, "Estate.am");
   assert.equal(estateTest.alternateHostUrl("https://www.estate.am/en/feed.rss"), "https://estate.am/en/feed.rss");
   assert.equal(estateTest.alternateHostUrl("https://estate.am/en/feed.rss"), "https://www.estate.am/en/feed.rss");
+
+  const ingestResult = sanitizeIngestPayload(
+    {
+      source: "listam",
+      listings: [
+        {
+          id: "22979765",
+          kindKey: "apartment",
+          priceUsd: 95000,
+          priceLabel: "$95,000",
+          url: "https://www.list.am/item/22979765",
+          title: "2 room apartment",
+          areaSqm: 70,
+          rooms: 2,
+          floor: { current: 2, total: 9, label: "2/9" },
+          location: "Avan",
+          condition: "ready",
+          elevator: true,
+          publishedAt: "2026-07-08T09:00:00.000Z",
+          publishedAtPrecision: "datetime",
+          rawText: "renovated elevator",
+          qualityScore: 7,
+          injected: "<script>alert(1)</script>",
+        },
+        { id: "bad-price", kindKey: "apartment", priceUsd: 10, url: "https://www.list.am/item/2" },
+        { id: "3", kindKey: "office", priceUsd: 90000, url: "https://www.list.am/item/3" },
+        { id: "4", kindKey: "apartment", priceUsd: 90000, url: "http://insecure.example.com/item/4", location: "Avan" },
+        { id: "5", kindKey: "apartment", priceUsd: 90000, url: "https://www.list.am/item/5", location: "Атлантида" },
+      ],
+    },
+    config
+  );
+  assert.equal(ingestResult.listings.length, 1);
+  assert.equal(ingestResult.dropped, 4);
+  assert.equal(ingestResult.listings[0].id, "22979765");
+  assert.equal(ingestResult.listings[0].source, "listam");
+  assert.equal(ingestResult.listings[0].minutesToCenter, 20);
+  assert.equal(ingestResult.listings[0].injected, undefined, "unknown fields must be stripped");
+  assert.equal(ingestResult.listings[0].pricePerSqm, Math.round(95000 / 70));
+  assert.match(sanitizeIngestPayload({ source: "evil", listings: [] }, config).error, /unknown source/);
+  assert.match(sanitizeIngestPayload({ source: "listam", listings: "no" }, config).error, /array/);
+
+  const relayState = {};
+  storeRelayListings(relayState, "listam", ingestResult.listings, new Date("2026-07-08T10:00:00.000Z"));
+  const relayFresh = relayFallbackResult(relayState, config, new Date("2026-07-08T11:00:00.000Z"));
+  assert.equal(relayFresh.sourceName, "listam_relay");
+  assert.equal(relayFresh.listings.length, 1);
+  assert.deepEqual(relayFresh.locations, ["Avan"]);
+  assert.equal(relayFallbackResult(relayState, config, new Date("2026-07-08T14:00:00.000Z")), null, "stale relay data must expire");
+  assert.equal(relayFallbackResult({}, config, new Date()), null);
+  assert.match(renderYaml, /key: INGEST_TOKEN\s*\n\s*generateValue: true/);
+  assert.match(renderYaml, /key: RELAY_MAX_AGE_MINUTES\s*\n\s*value: "180"/);
 
   const rankingNow = new Date("2026-07-08T12:00:00.000Z");
   const districtSample = [

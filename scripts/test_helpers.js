@@ -36,6 +36,8 @@ function testConfig(overrides = {}) {
     listamQuickChallengeWaitSeconds: 1,
     listamFullProbeIntervalMinutes: 60,
     listamFeedUrls: [],
+    ingestToken: "",
+    relayMaxAgeMinutes: 180,
     scanIssueAlerts: true,
     scanIssueAlertAfter: 3,
     scanIssueAlertCooldownMinutes: 360,
