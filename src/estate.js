@@ -271,7 +271,7 @@ function parseEntry(entry, config) {
   return item;
 }
 
-async function fetchText(url, config) {
+async function fetchTextOnce(url, config) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.navigationTimeoutMs || 75000);
   try {
@@ -288,6 +288,20 @@ async function fetchText(url, config) {
     return await response.text();
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+function alternateHostUrl(url) {
+  if (/:\/\/www\./i.test(url)) return url.replace(/:\/\/www\./i, "://");
+  return url.replace(/:\/\//, "://www.");
+}
+
+async function fetchText(url, config) {
+  try {
+    return await fetchTextOnce(url, config);
+  } catch (error) {
+    if (!/HTTP 403/.test(error.message)) throw error;
+    return fetchTextOnce(alternateHostUrl(url), config);
   }
 }
 
@@ -336,6 +350,7 @@ async function scanEstate(config, logger = console) {
 module.exports = {
   scanEstate,
   __test: {
+    alternateHostUrl,
     entryBlocks,
     feedUrls,
     parseEntry,

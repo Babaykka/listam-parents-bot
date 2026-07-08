@@ -7,6 +7,7 @@ const { scanEstate } = require("./estate");
 const { scanListAm } = require("./listam");
 const { scanListAmFeed } = require("./listamFeed");
 const { scanMyRealty } = require("./myrealty");
+const { coreSourcesDown, updateSourceHealth } = require("./sourceHealth");
 const { activeSubscribers, deactivateSubscriber, readState, writeState } = require("./state");
 const {
   configureTelegram,
@@ -83,12 +84,16 @@ function healthPayload() {
     ok: true,
     service: "listam-estate-bot",
     bot: state.bot?.username || null,
+    uptimeSeconds: Math.round(process.uptime()),
     subscribers: activeSubscribers(state, config).length,
     listings: state.listings?.length || 0,
+    visibleListings: (state.listings || []).filter((item) => !item.duplicateOf).length,
     seenIds: state.seenIds?.length || 0,
     scanRunning,
     lastScan: state.lastScan,
     scanHealth: state.scanHealth || null,
+    sources: state.scanHealth?.sources || {},
+    coreSourcesDown: coreSourcesDown(state),
     scanSchedule: scanSchedulePayload(),
     nextScanAt: state.nextScanAt,
     publicUrl: config.publicUrl || null,
@@ -302,6 +307,7 @@ async function runScanCycle(reason = "schedule") {
       locations: result.locations,
     };
     updateScanHealth(state, config, challengeBlocked);
+    updateSourceHealth(state, result.sourceResults || []);
     if (listamSource?.probeMode === "full") state.scanHealth.lastListamFullProbeAt = result.scannedAt;
     if (listamSource?.blocked) state.scanHealth.lastListamBlockedAt = result.scannedAt;
 
@@ -319,6 +325,7 @@ async function runScanCycle(reason = "schedule") {
     }
 
     await maybeNotifyScanHealth(config, state, challengeBlocked, result, previousBlockedStreak);
+    await maybeNotifyCoreSourceIssue(config, state);
   } catch (error) {
     console.error(`[scan] failed: ${error.stack || error.message}`);
     state.lastScan = {
@@ -404,6 +411,31 @@ async function maybeNotifyScanHealth(config, state, blocked, result, previousBlo
     state.scanHealth.lastRecoveryAlertAt = new Date().toISOString();
     writeState(config, state);
     await sendToActiveSubscribers(config, state, "List.am снова отдаёт объявления. Я продолжил обычную проверку и пришлю новые подходящие варианты автоматически.");
+  }
+}
+
+async function maybeNotifyCoreSourceIssue(config, state) {
+  if (!config.scanIssueAlerts || config.adminChatIds.size === 0) return;
+  if (!coreSourcesDown(state)) {
+    state.scanHealth.coreSourceAlertActive = false;
+    return;
+  }
+  if (state.scanHealth.coreSourceAlertActive) {
+    const elapsedMinutes = (Date.now() - Date.parse(state.scanHealth.lastCoreSourceAlertAt || "")) / 60000;
+    if (!Number.isFinite(elapsedMinutes) || elapsedMinutes < config.scanIssueAlertCooldownMinutes) return;
+  }
+
+  state.scanHealth.coreSourceAlertActive = true;
+  state.scanHealth.lastCoreSourceAlertAt = new Date().toISOString();
+  writeState(config, state);
+
+  const text = [
+    "<b>Основные источники не отвечают</b>",
+    "Banali.am и MyRealty несколько проверок подряд не возвращают объявления.",
+    "Бот продолжает попытки автоматически. Подробности: /admin_sources",
+  ].join("\n");
+  for (const chatId of config.adminChatIds) {
+    await sendMessage(config, chatId, text).catch((error) => console.error(`[telegram] core source alert failed: ${error.message}`));
   }
 }
 

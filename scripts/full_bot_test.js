@@ -8,6 +8,7 @@ const { __test: banaliTest } = require("../src/banali");
 const { dedupeListings, isLikelyDuplicate } = require("../src/dedupe");
 const { mergeListings, visibleListings } = require("../src/listingStore");
 const { computeBaselines, explainListing, valueScore } = require("../src/ranking");
+const { coreSourcesDown, isSourceDegraded, sourceStatusEntries, updateSourceHealth } = require("../src/sourceHealth");
 const { __test: estateTest } = require("../src/estate");
 const { __test: listamFeedTest } = require("../src/listamFeed");
 const { __test: listamTest } = require("../src/listam");
@@ -306,6 +307,35 @@ async function main() {
     false,
     "duplicates must not reach listing output"
   );
+
+  const healthState = { scanHealth: {} };
+  const failingScan = [
+    { source: "listam", listings: 0, skipped: 2, blocked: true, error: null, durationMs: 20000 },
+    { source: "estate", listings: 0, skipped: 4, blocked: false, error: null, durationMs: 100 },
+    { source: "banali", listings: 0, skipped: 8, blocked: false, error: "HTTP 500", durationMs: 900 },
+    { source: "myrealty", listings: 0, skipped: 10, blocked: false, error: "fetch failed", durationMs: 400 },
+  ];
+  for (let round = 0; round < 3; round += 1) updateSourceHealth(healthState, failingScan, new Date("2026-07-08T10:00:00.000Z"));
+  assert.equal(isSourceDegraded(healthState, "estate"), true);
+  assert.equal(isSourceDegraded(healthState, "banali"), true);
+  assert.equal(coreSourcesDown(healthState), true);
+  updateSourceHealth(
+    healthState,
+    [
+      { source: "banali", listings: 80, skipped: 0, blocked: false, error: null, durationMs: 800 },
+      { source: "myrealty", listings: 12, skipped: 0, blocked: false, error: null, durationMs: 9000 },
+    ],
+    new Date("2026-07-08T10:05:00.000Z")
+  );
+  assert.equal(coreSourcesDown(healthState), false);
+  assert.equal(healthState.scanHealth.sources.banali.failStreak, 0);
+  assert.equal(healthState.scanHealth.sources.estate.failStreak, 3);
+  const statusEntries = sourceStatusEntries(healthState);
+  const estateEntry = statusEntries.find((entry) => entry.source === "estate");
+  assert.equal(estateEntry.degraded, true);
+  assert.equal(estateEntry.label, "Estate.am");
+  assert.equal(estateTest.alternateHostUrl("https://www.estate.am/en/feed.rss"), "https://estate.am/en/feed.rss");
+  assert.equal(estateTest.alternateHostUrl("https://estate.am/en/feed.rss"), "https://www.estate.am/en/feed.rss");
 
   const rankingNow = new Date("2026-07-08T12:00:00.000Z");
   const districtSample = [
