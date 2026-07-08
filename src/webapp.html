@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Дом в Ереване — каталог</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --surface: #fcfcfb;
+    --card: #ffffff;
+    --text: #0b0b0b;
+    --text-2: #52514e;
+    --text-3: #8a887f;
+    --line: #e8e7e2;
+    --chip: #f0efec;
+    --chip-on: #0b0b0b;
+    --chip-on-text: #ffffff;
+    --accent: #2a78d6;
+    --good: #0ca30c;
+    --warn: #b47500;
+    --why: #0a7a3d;
+    --why-bg: #eaf6ee;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --surface: #1a1a19;
+      --card: #232322;
+      --text: #ffffff;
+      --text-2: #c3c2b7;
+      --text-3: #8a887f;
+      --line: #383835;
+      --chip: #2e2e2c;
+      --chip-on: #f0efec;
+      --chip-on-text: #111110;
+      --accent: #3987e5;
+      --good: #2fbf2f;
+      --warn: #fab219;
+      --why: #4fca82;
+      --why-bg: #1f2f25;
+    }
+  }
+  html.tg {
+    --surface: var(--tg-theme-bg-color, var(--surface));
+    --card: var(--tg-theme-secondary-bg-color, var(--card));
+    --text: var(--tg-theme-text-color, var(--text));
+    --text-2: var(--tg-theme-hint-color, var(--text-2));
+    --accent: var(--tg-theme-link-color, var(--accent));
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--surface);
+    color: var(--text);
+    font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    padding-bottom: 40px;
+  }
+  .wrap { max-width: 680px; margin: 0 auto; padding: 0 14px; }
+
+  header { padding: 14px 0 6px; }
+  h1 { font-size: 19px; margin: 0 0 2px; }
+  .sub { color: var(--text-2); font-size: 13px; }
+
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 12px 0 4px; }
+  .stat { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+  .stat .num { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; }
+  .stat .lbl { font-size: 12px; color: var(--text-2); margin-top: 1px; }
+
+  .sources { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 2px; }
+  .src { font-size: 12px; color: var(--text-2); background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; }
+  .src b { color: var(--text); font-weight: 600; }
+
+  .filters {
+    position: sticky; top: 0; z-index: 5;
+    background: var(--surface);
+    padding: 10px 0 8px;
+    display: flex; gap: 6px; overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .filters::-webkit-scrollbar { display: none; }
+  .chip {
+    flex: 0 0 auto;
+    border: 1px solid var(--line);
+    background: var(--chip);
+    color: var(--text);
+    border-radius: 999px;
+    padding: 7px 13px;
+    font-size: 13.5px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .chip.on { background: var(--chip-on); color: var(--chip-on-text); border-color: var(--chip-on); }
+  select.chip { appearance: none; -webkit-appearance: none; }
+
+  .cards { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+  a.card {
+    display: block; text-decoration: none; color: inherit;
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 14px; padding: 13px 14px;
+  }
+  .row1 { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+  .price { font-size: 19px; font-weight: 700; letter-spacing: -0.02em; }
+  .sqm { color: var(--text-2); font-size: 13px; white-space: nowrap; }
+  .row2 { margin-top: 3px; font-size: 14.5px; }
+  .row3 { margin-top: 5px; color: var(--text-2); font-size: 13px; display: flex; flex-wrap: wrap; gap: 4px 10px; }
+  .why {
+    margin-top: 8px; font-size: 13px; color: var(--why);
+    background: var(--why-bg); border-radius: 8px; padding: 6px 9px;
+  }
+  .row4 { margin-top: 8px; display: flex; justify-content: space-between; gap: 10px; color: var(--text-3); font-size: 12px; }
+  .badge { border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; }
+
+  .more {
+    margin: 16px auto 0; display: block;
+    background: var(--chip); color: var(--text);
+    border: 1px solid var(--line); border-radius: 12px;
+    padding: 11px 22px; font-size: 14.5px; cursor: pointer;
+  }
+  .note { text-align: center; color: var(--text-2); font-size: 13.5px; padding: 26px 10px; }
+  .skeleton { height: 108px; border-radius: 14px; border: 1px solid var(--line);
+    background: linear-gradient(100deg, var(--card) 40%, var(--chip) 50%, var(--card) 60%);
+    background-size: 200% 100%; animation: sh 1.2s infinite linear; }
+  @keyframes sh { to { background-position: -200% 0; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Дом в Ереване</h1>
+    <div class="sub" id="updated">Загружаю…</div>
+    <div class="stats" id="stats" hidden>
+      <div class="stat"><div class="num" id="statTotal">–</div><div class="lbl">объявлений</div></div>
+      <div class="stat"><div class="num" id="statFresh">–</div><div class="lbl">свежих за сутки</div></div>
+      <div class="stat"><div class="num" id="statSources">–</div><div class="lbl">источников работает</div></div>
+    </div>
+    <div class="sources" id="sources"></div>
+  </header>
+
+  <div class="filters" id="filters">
+    <button class="chip on" data-kind="">Все</button>
+    <button class="chip" data-kind="apartment">Квартиры</button>
+    <button class="chip" data-kind="house">Дома</button>
+    <button class="chip" data-sort="value">Выгодные</button>
+    <button class="chip" data-minarea="70">От 70 м²</button>
+    <select class="chip" id="districtSel"><option value="">Все районы</option></select>
+    <select class="chip" id="priceSel">
+      <option value="">Любая цена</option>
+      <option value="80000">до $80k</option>
+      <option value="100000">до $100k</option>
+      <option value="120000">до $120k</option>
+      <option value="150000">до $150k</option>
+    </select>
+  </div>
+
+  <div class="cards" id="cards">
+    <div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>
+  </div>
+  <button class="more" id="more" hidden>Показать ещё</button>
+  <div class="note" id="note" hidden></div>
+</div>
+
+<script>
+(function () {
+  var tg = window.Telegram && window.Telegram.WebApp;
+  if (tg) {
+    document.documentElement.classList.add("tg");
+    try { tg.ready(); tg.expand(); } catch (e) {}
+  }
+
+  var all = [];
+  var meta = null;
+  var shown = 0;
+  var PAGE = 20;
+  var state = { kind: "", sort: "fresh", minArea: 0, location: "", maxPrice: 0 };
+
+  var $ = function (id) { return document.getElementById(id); };
+
+  function money(v) { return "$" + Number(v || 0).toLocaleString("en-US"); }
+
+  function rel(iso) {
+    if (!iso) return "";
+    var m = Math.round((Date.now() - Date.parse(iso)) / 60000);
+    if (!isFinite(m)) return "";
+    if (m < 1) return "только что";
+    if (m < 60) return m + " мин назад";
+    var h = Math.round(m / 60);
+    if (h < 48) return h + " ч назад";
+    return Math.round(h / 24) + " дн назад";
+  }
+
+  function conditionLabel(v) {
+    return { ready: "с ремонтом", partial: "частичный ремонт", needs_work: "нужен ремонт" }[v] || "";
+  }
+
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
+    });
+  }
+
+  function matches(item) {
+    if (state.kind && item.kindKey !== state.kind) return false;
+    if (state.minArea && !(Number(item.areaSqm) >= state.minArea)) return false;
+    if (state.location && item.location !== state.location) return false;
+    if (state.maxPrice && Number(item.priceUsd) > state.maxPrice) return false;
+    return true;
+  }
+
+  function sorted(items) {
+    var arr = items.slice();
+    if (state.sort === "value") {
+      arr.sort(function (a, b) {
+        return (b.valueScore || 0) - (a.valueScore || 0) || (a.priceUsd || 0) - (b.priceUsd || 0);
+      });
+    }
+    return arr; // server already sends fresh-first
+  }
+
+  function card(item) {
+    var title = [
+      item.rooms ? item.rooms + " комн." : null,
+      item.areaSqm ? item.areaSqm + " м²" : null,
+      item.floorLabel ? item.floorLabel + " эт." : null,
+      item.landSqm ? "участок " + item.landSqm + " м²" : null,
+    ].filter(Boolean).join(" · ");
+    var metaBits = [
+      item.location || "район не распознан",
+      item.minutesToCenter != null ? item.minutesToCenter + " мин до центра" : null,
+      conditionLabel(item.condition),
+      item.elevator === true ? "лифт" : null,
+    ].filter(Boolean);
+    var when = item.updatedAt ? "обновлено " + rel(item.updatedAt) : item.publishedAt ? rel(item.publishedAt) : (item.discoveredAt ? "найдено " + rel(item.discoveredAt) : "");
+    var src = esc(item.sourceLabel || "");
+    if (item.alsoSources && item.alsoSources.length) src += " +" + item.alsoSources.length;
+
+    return '<a class="card" href="' + esc(item.url) + '" target="_blank" rel="noopener">'
+      + '<div class="row1"><span class="price">' + esc(item.kind) + " · " + money(item.priceUsd) + "</span>"
+      + (item.pricePerSqm ? '<span class="sqm">' + money(item.pricePerSqm) + "/м²</span>" : "")
+      + "</div>"
+      + (title ? '<div class="row2">' + esc(title) + "</div>" : "")
+      + '<div class="row3">' + metaBits.map(function (b) { return "<span>" + esc(b) + "</span>"; }).join("") + "</div>"
+      + (item.whyGood && item.whyGood.length >= 2 ? '<div class="why">' + esc("Почему интересно: " + item.whyGood.join("; ")) + "</div>" : "")
+      + '<div class="row4"><span>' + esc(when) + '</span><span class="badge">' + src + "</span></div>"
+      + "</a>";
+  }
+
+  function render(reset) {
+    var items = sorted(all.filter(matches));
+    if (reset) shown = 0;
+    shown = Math.min(items.length, shown + PAGE);
+    $("cards").innerHTML = items.slice(0, shown).map(card).join("") || "";
+    $("more").hidden = shown >= items.length;
+    $("note").hidden = items.length > 0;
+    if (items.length === 0) $("note").textContent = "Под эти фильтры пока ничего нет. Попробуй убрать часть фильтров.";
+  }
+
+  function renderMeta() {
+    if (!meta) return;
+    $("updated").textContent = meta.updatedAt ? "Обновлено " + rel(meta.updatedAt) + " · проверяю каждые " + meta.scanIntervalMinutes + " мин" : "Первая проверка скоро";
+    $("stats").hidden = false;
+    $("statTotal").textContent = meta.total;
+    $("statFresh").textContent = meta.freshLast24h;
+    var ok = meta.sources.filter(function (s) { return s.ok; }).length;
+    $("statSources").textContent = ok + "/" + meta.sources.length;
+    $("sources").innerHTML = meta.sources.map(function (s) {
+      return '<span class="src">' + (s.ok ? "✅" : "⚠️") + " <b>" + esc(s.label) + "</b>" + (s.ok ? " · " + s.listings : " · недоступен") + "</span>";
+    }).join("");
+    var sel = $("districtSel");
+    meta.locations.forEach(function (loc) {
+      var o = document.createElement("option");
+      o.value = loc; o.textContent = loc;
+      sel.appendChild(o);
+    });
+  }
+
+  function load() {
+    fetch("/api/listings?limit=300").then(function (r) {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    }).then(function (data) {
+      meta = data;
+      all = data.listings || [];
+      renderMeta();
+      render(true);
+    }).catch(function (e) {
+      $("cards").innerHTML = "";
+      $("note").hidden = false;
+      $("note").innerHTML = "Не получилось загрузить: " + esc(e.message) + '<br><br><button class="more" onclick="location.reload()">Обновить</button>';
+    });
+  }
+
+  $("filters").addEventListener("click", function (event) {
+    var btn = event.target.closest("button.chip");
+    if (!btn) return;
+    if (btn.dataset.kind !== undefined) {
+      state.kind = btn.dataset.kind;
+      document.querySelectorAll("[data-kind]").forEach(function (b) { b.classList.toggle("on", b === btn); });
+    }
+    if (btn.dataset.sort) {
+      var on = btn.classList.toggle("on");
+      state.sort = on ? "value" : "fresh";
+    }
+    if (btn.dataset.minarea) {
+      var onA = btn.classList.toggle("on");
+      state.minArea = onA ? Number(btn.dataset.minarea) : 0;
+    }
+    render(true);
+  });
+  $("districtSel").addEventListener("change", function () { state.location = this.value; this.classList.toggle("on", !!this.value); render(true); });
+  $("priceSel").addEventListener("change", function () { state.maxPrice = Number(this.value) || 0; this.classList.toggle("on", !!this.value); render(true); });
+  $("more").addEventListener("click", function () { render(false); });
+
+  load();
+})();
+</script>
+</body>
+</html>

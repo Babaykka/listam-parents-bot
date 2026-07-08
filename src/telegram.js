@@ -846,6 +846,7 @@ function tourText(config) {
     `<i>дом до 120к, до 30 минут от центра, участок от 200 м²</i>`,
     "",
     `<b>Главные кнопки</b>`,
+    `/app - каталог всех вариантов с фильтрами`,
     `/setup - примеры настройки`,
     `/latest - уже найденные варианты`,
     `/filters - что сейчас ищем`,
@@ -1207,9 +1208,20 @@ async function configureTelegram(config, state) {
     description:
       "Бот проверяет новые объявления по недвижимости из нескольких источников и присылает совпадения. Настройка простая: напиши обычным текстом, что ищешь, например 'дом до 120к, до 30 минут от центра'.",
   });
+  if (config.publicUrl) {
+    await setupTelegramApi(config, "setChatMenuButton", {
+      menu_button: {
+        type: "web_app",
+        text: "Каталог",
+        web_app: { url: `${config.publicUrl}/app` },
+      },
+    });
+  }
+
   await setupTelegramApi(config, "setMyCommands", {
     commands: [
       { command: "start", description: "Включить подписку" },
+      { command: "app", description: "Открыть каталог" },
       { command: "tour", description: "Как работает бот" },
       { command: "latest", description: "Последние варианты" },
       { command: "top", description: "Лучшие по качеству" },
@@ -1286,6 +1298,22 @@ async function handleCommand(config, state, message, hooks = {}) {
       limit: 5,
       title: "Так выглядят подходящие варианты",
     });
+    return true;
+  }
+
+  if (command === "/app" || command === "/catalog") {
+    if (!config.publicUrl) {
+      await sendMessage(config, chat.id, "Каталог появится после деплоя с публичным URL.");
+      return true;
+    }
+    const appUrl = `${config.publicUrl}/app`;
+    if (chat.type === "private") {
+      await sendMessage(config, chat.id, "Каталог всех подходящих объявлений с фильтрами — в один тап:", {
+        replyMarkup: { inline_keyboard: [[{ text: "Открыть каталог", web_app: { url: appUrl } }]] },
+      });
+    } else {
+      await sendMessage(config, chat.id, `Каталог объявлений: ${escapeHtml(appUrl)}`, { disablePreview: true });
+    }
     return true;
   }
 

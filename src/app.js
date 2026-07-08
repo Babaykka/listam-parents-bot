@@ -1,4 +1,7 @@
+const fs = require("fs");
 const http = require("http");
+const path = require("path");
+const { listingsApiPayload } = require("./api");
 const { loadConfig } = require("./config");
 const { compareListingActivity, isSeenListing, nextSeenIds } = require("./listingFreshness");
 const { mergeListings } = require("./listingStore");
@@ -539,12 +542,25 @@ async function handleWebhook(req, res) {
   json(res, 200, { ok: true });
 }
 
+const WEBAPP_HTML = fs.readFileSync(path.join(__dirname, "webapp.html"), "utf8");
+
 function createServer() {
   return http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
       if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/health")) {
         json(res, 200, healthPayload());
+        return;
+      }
+
+      if (req.method === "GET" && (url.pathname === "/app" || url.pathname === "/app/")) {
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache" });
+        res.end(WEBAPP_HTML);
+        return;
+      }
+
+      if (req.method === "GET" && url.pathname === "/api/listings") {
+        json(res, 200, listingsApiPayload(state, config, Object.fromEntries(url.searchParams)));
         return;
       }
 

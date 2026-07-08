@@ -10,6 +10,7 @@ const { mergeListings, visibleListings } = require("../src/listingStore");
 const { computeBaselines, explainListing, valueScore } = require("../src/ranking");
 const { coreSourcesDown, isSourceDegraded, sourceStatusEntries, updateSourceHealth } = require("../src/sourceHealth");
 const { relayFallbackResult, sanitizeIngestPayload, storeRelayListings } = require("../src/ingest");
+const { listingsApiPayload, publicListingView } = require("../src/api");
 const { __test: estateTest } = require("../src/estate");
 const { __test: listamFeedTest } = require("../src/listamFeed");
 const { __test: listamTest } = require("../src/listam");
@@ -440,6 +441,33 @@ async function main() {
   const topListings = telegramTest.matchingListings(config, { filters: {} }, annotatedCache, 4, "top");
   assert.equal(topListings[0].id, "r1", "top mode must put the best-value listing first");
 
+  const apiState = {
+    listings: mergeListings([banaliOriginal, differentListing], districtSample, config, rankingNow),
+    lastScan: { at: "2026-07-08T11:55:00.000Z", sources: [{ source: "banali", listings: 5, blocked: false }] },
+    nextScanAt: "2026-07-08T12:05:00.000Z",
+    scanHealth: { sources: { banali: { failStreak: 0, lastListings: 5 } } },
+    subscribers: [{ id: "999", active: true, filters: { secret: true } }],
+  };
+  const apiPayload = listingsApiPayload(apiState, config, {}, rankingNow);
+  assert(apiPayload.total >= 5);
+  assert.equal(apiPayload.sources[0].label, "Banali.am");
+  assert.equal(apiPayload.sources[0].ok, true);
+  assert(apiPayload.locations.includes("Avan"));
+  assert.doesNotMatch(JSON.stringify(apiPayload), /subscribers|secret|rawText/, "public API must not leak subscriber data or raw text");
+  const apartmentsOnly = listingsApiPayload(apiState, config, { kind: "apartment", minArea: 70, maxPrice: 100000, sort: "value" }, rankingNow);
+  assert(apartmentsOnly.listings.length >= 1);
+  assert(apartmentsOnly.listings.every((item) => item.kindKey === "apartment" && item.areaSqm >= 70 && item.priceUsd <= 100000));
+  assert.equal(apartmentsOnly.listings[0].id, "r1", "value sort must put the bargain first");
+  assert.equal(listingsApiPayload(apiState, config, { limit: 2 }, rankingNow).listings.length, 2);
+  const apiView = publicListingView({ ...banaliOriginal, rawText: "secret raw", floor: { current: 2, total: 9, label: "2/9" } });
+  assert.equal(apiView.rawText, undefined);
+  assert.equal(apiView.floorLabel, "2/9");
+  assert.equal(apiView.sourceLabel, "Banali.am");
+
+  const webappHtml = fs.readFileSync(path.join(__dirname, "..", "src", "webapp.html"), "utf8");
+  assert.match(webappHtml, /api\/listings/);
+  assert.match(webappHtml, /telegram-web-app\.js/);
+
   await handleTelegramUpdate(config, state, update("/start", 101));
   assert.equal(activeSubscribers(state, config).length, 1);
   assert(fake.messages.some((message) => /Что делает этот бот/.test(message.text)));
@@ -674,6 +702,12 @@ async function main() {
   await handleTelegramUpdate(config, state, update("/status", 101));
   assert.match(fake.messages.at(-1).text, /Бот работает/);
   assert.match(fake.messages.at(-1).text, /проверку браузера/);
+
+  config.publicUrl = "https://listam-parents-bot.onrender.com";
+  await handleTelegramUpdate(config, state, update("/app", 101));
+  const appMessage = fake.messages.at(-1);
+  assert.equal(appMessage.reply_markup.inline_keyboard[0][0].web_app.url, "https://listam-parents-bot.onrender.com/app");
+  config.publicUrl = "";
 
   await handleTelegramUpdate(config, state, update("/admin_status", 101));
   assert.match(fake.messages.at(-1).text, /только администратору/);
