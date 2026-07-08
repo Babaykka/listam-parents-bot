@@ -1,6 +1,7 @@
 const http = require("http");
 const { loadConfig } = require("./config");
 const { compareListingActivity, isSeenListing, nextSeenIds } = require("./listingFreshness");
+const { mergeListings } = require("./listingStore");
 const { scanBanali } = require("./banali");
 const { scanEstate } = require("./estate");
 const { scanListAm } = require("./listam");
@@ -110,32 +111,6 @@ function scanSchedulePayload() {
     blockedIntervalMinutes: config.blockedScanIntervalMinutes,
     blockedMaxIntervalMinutes: config.blockedScanMaxIntervalMinutes,
   };
-}
-
-function mergeListings(previous, scanned, config) {
-  const now = new Date().toISOString();
-  const byId = new Map();
-
-  for (const item of previous || []) {
-    byId.set(item.id, {
-      ...item,
-      qualityScore: item.qualityScore ?? item["parent" + "Score"] ?? 0,
-    });
-  }
-
-  for (const item of scanned) {
-    const existing = byId.get(item.id);
-    byId.set(item.id, {
-      ...existing,
-      ...item,
-      discoveredAt: existing?.discoveredAt || now,
-      lastSeenAt: now,
-    });
-  }
-
-  return Array.from(byId.values())
-    .sort(compareListingActivity)
-    .slice(0, config.maxListingsCache);
 }
 
 function sourceMaxPriceUsd(config, state) {
@@ -308,11 +283,18 @@ async function runScanCycle(reason = "schedule") {
 
     state.seenIds = nextSeenIds(state.seenIds || [], result.listings, config.maxSeenIds);
     state.listings = mergeListings(state.listings, result.listings, config);
+
+    const mergedById = new Map(state.listings.map((item) => [item.id, item]));
+    const notifiableListings = newListings
+      .map((item) => mergedById.get(item.id) || item)
+      .filter((item) => !item.duplicateOf);
+
     state.lastScan = {
       at: result.scannedAt,
       reason,
       scanned: result.listings.length,
       new: newListings.length,
+      duplicatesSuppressed: newListings.length - notifiableListings.length,
       skipped: result.skipped.length,
       blocked: challengeBlocked,
       skippedDetails: result.skipped.slice(0, 5),
@@ -328,11 +310,11 @@ async function runScanCycle(reason = "schedule") {
       `[scan] done: matched ${result.listings.length}, new ${newListings.length}, skipped ${result.skipped.length}, blocked ${challengeBlocked}`
     );
 
-    if (newListings.length > 0) {
+    if (notifiableListings.length > 0) {
       if (!config.sendInitial && oldSeen.size === 0 && previousBlockedStreak === 0) {
         console.log(`[scan] first successful run initialized ${newListings.length} seen ids without sending old listings`);
       } else {
-        await notifySubscribers(config, state, newListings);
+        await notifySubscribers(config, state, notifiableListings);
       }
     }
 

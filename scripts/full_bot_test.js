@@ -5,6 +5,8 @@ const { configureTelegram, handleTelegramUpdate, notifySubscribers, __test: tele
 const { activeSubscribers, readState, writeState } = require("../src/state");
 const freshnessTest = require("../src/listingFreshness");
 const { __test: banaliTest } = require("../src/banali");
+const { dedupeListings, isLikelyDuplicate } = require("../src/dedupe");
+const { mergeListings, visibleListings } = require("../src/listingStore");
 const { __test: estateTest } = require("../src/estate");
 const { __test: listamFeedTest } = require("../src/listamFeed");
 const { __test: listamTest } = require("../src/listam");
@@ -244,6 +246,64 @@ async function main() {
   assert.deepEqual(
     banaliTest.priceBucketsForConfig({ minPriceUsd: 0, maxPriceUsd: 120000 }),
     ["usd~lt_40000", "usd~gte_40000-lte_60000", "usd~gte_60001-lte_80000", "usd~gte_80001-lte_100000", "usd~gte_100001-lte_150000"]
+  );
+
+  const banaliOriginal = listing("banali:D100", {
+    kindKey: "apartment",
+    location: "Avan",
+    priceUsd: 95000,
+    areaSqm: 72,
+    rooms: 3,
+    url: "https://banali.am/en/sell/apartment/D100",
+    discoveredAt: "2026-07-01T10:00:00.000Z",
+  });
+  banaliOriginal.source = "banali";
+  banaliOriginal.sourceLabel = "Banali.am";
+  const myrealtyCopy = listing("myrealty:200", {
+    kindKey: "apartment",
+    location: "Avan",
+    priceUsd: 96500,
+    areaSqm: 71,
+    rooms: 3,
+    url: "https://myrealty.am/en/apartment/200",
+    discoveredAt: "2026-07-05T10:00:00.000Z",
+  });
+  myrealtyCopy.source = "myrealty";
+  myrealtyCopy.sourceLabel = "MyRealty";
+  const differentListing = listing("myrealty:201", {
+    kindKey: "apartment",
+    location: "Avan",
+    priceUsd: 95500,
+    areaSqm: 55,
+    rooms: 2,
+    url: "https://myrealty.am/en/apartment/201",
+    discoveredAt: "2026-07-05T11:00:00.000Z",
+  });
+  differentListing.source = "myrealty";
+
+  assert.equal(isLikelyDuplicate(banaliOriginal, myrealtyCopy), true);
+  assert.equal(isLikelyDuplicate(banaliOriginal, differentListing), false);
+  assert.equal(isLikelyDuplicate(banaliOriginal, { ...myrealtyCopy, source: "banali" }), false, "same source is never fuzzy-deduped");
+
+  const deduped = dedupeListings([banaliOriginal, myrealtyCopy, differentListing]);
+  const dedupedById = new Map(deduped.map((item) => [item.id, item]));
+  assert.equal(dedupedById.get("banali:D100").duplicateOf, undefined);
+  assert.equal(dedupedById.get("myrealty:200").duplicateOf, "banali:D100");
+  assert.equal(dedupedById.get("myrealty:201").duplicateOf, undefined);
+  assert.deepEqual(
+    dedupedById.get("banali:D100").alsoSources.map((entry) => entry.label),
+    ["MyRealty"]
+  );
+  assert.equal(visibleListings(deduped).length, 2);
+  assert.match(telegramTest.listingLine(dedupedById.get("banali:D100")), /Также на: MyRealty/);
+
+  const mergedCache = mergeListings([banaliOriginal], [myrealtyCopy], config);
+  const mergedCopy = mergedCache.find((item) => item.id === "myrealty:200");
+  assert.equal(mergedCopy.duplicateOf, "banali:D100", "later-found cross-source copy must be marked as duplicate");
+  assert.equal(
+    telegramTest.matchingListings(config, { filters: {} }, mergedCache, 10, "latest").some((item) => item.id === "myrealty:200"),
+    false,
+    "duplicates must not reach listing output"
   );
 
   await handleTelegramUpdate(config, state, update("/start", 101));

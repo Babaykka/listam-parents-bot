@@ -244,6 +244,7 @@ function listingLine(item) {
     joinLine("Дополнительно", comfort),
     listingDateDetail(item) ? escapeHtml(`Дата: ${listingDateDetail(item)}`) : null,
     sourceLabel(item) ? escapeHtml(`Источник: ${sourceLabel(item)}`) : null,
+    item.alsoSources?.length ? escapeHtml(`Также на: ${item.alsoSources.map((entry) => entry.label).join(", ")}`) : null,
     `<a href="${escapeHtml(listingUrl(item))}">Открыть объявление</a>`,
   ]
     .filter(Boolean)
@@ -337,7 +338,7 @@ function matchesSubscriber(config, subscriber, item) {
 }
 
 function matchingListings(config, subscriber, listings, limit = 10, mode = "latest") {
-  const filtered = (listings || []).filter((item) => matchesSubscriber(config, subscriber, item));
+  const filtered = (listings || []).filter((item) => !item.duplicateOf && matchesSubscriber(config, subscriber, item));
   if (mode === "top") {
     filtered.sort((a, b) => scoreOf(b) - scoreOf(a) || a.priceUsd - b.priceUsd);
   } else {
