@@ -8,7 +8,7 @@ const { __test: banaliTest } = require("../src/banali");
 const { dedupeListings, isLikelyDuplicate } = require("../src/dedupe");
 const { mergeListings, visibleListings } = require("../src/listingStore");
 const { computeBaselines, explainListing, valueScore } = require("../src/ranking");
-const { coreSourcesDown, isSourceDegraded, sourceStatusEntries, updateSourceHealth } = require("../src/sourceHealth");
+const { coreSourcesDown, isSourceDegraded, mergedSourceEntries, sourceStatusEntries, updateSourceHealth } = require("../src/sourceHealth");
 const { relayFallbackResult, sanitizeIngestPayload, storeRelayListings } = require("../src/ingest");
 const { listingsApiPayload, publicListingView } = require("../src/api");
 const { __test: estateTest } = require("../src/estate");
@@ -384,6 +384,38 @@ async function main() {
   const estateEntry = statusEntries.find((entry) => entry.source === "estate");
   assert.equal(estateEntry.degraded, true);
   assert.equal(estateEntry.label, "Estate.am");
+
+  // When List.am is blocked directly but the relay delivered listings, users
+  // must see one healthy "List.am" line, not a scary "недоступен".
+  const relayHealthy = {
+    lastScan: {
+      at: "2026-07-08T10:00:00.000Z",
+      sources: [
+        { source: "listam", listings: 0, blocked: true, error: null },
+        { source: "listam_relay", listings: 67, blocked: false, error: null },
+        { source: "banali", listings: 83, blocked: false, error: null },
+      ],
+    },
+    scanHealth: {
+      sources: {
+        listam: { failStreak: 40, lastError: "проверка браузера" },
+        listam_relay: { failStreak: 0, lastListings: 67, lastSuccessAt: "2026-07-08T10:00:00.000Z" },
+        banali: { failStreak: 0, lastListings: 83 },
+      },
+    },
+  };
+  const merged = mergedSourceEntries(relayHealthy);
+  const listamMerged = merged.find((entry) => entry.source === "listam");
+  assert(listamMerged, "merged view must have a single List.am entry");
+  assert.equal(listamMerged.degraded, false, "List.am must read as working when the relay delivers");
+  assert.equal(listamMerged.listings, 67);
+  assert.equal(merged.filter((entry) => entry.label.startsWith("List.am")).length, 1, "no duplicate List.am rows");
+  assert(!merged.some((entry) => entry.source === "listam_relay"), "relay is folded into List.am");
+  const blockedNoRelay = mergedSourceEntries({
+    lastScan: { at: "2026-07-08T10:00:00.000Z", sources: [{ source: "listam", listings: 0, blocked: true }] },
+    scanHealth: { sources: { listam: { failStreak: 40, lastError: "проверка браузера" } } },
+  });
+  assert.equal(blockedNoRelay.find((entry) => entry.source === "listam").degraded, true, "without relay data List.am is honestly degraded");
   assert.equal(estateTest.alternateHostUrl("https://www.estate.am/en/feed.rss"), "https://estate.am/en/feed.rss");
   assert.equal(estateTest.alternateHostUrl("https://estate.am/en/feed.rss"), "https://www.estate.am/en/feed.rss");
 
@@ -501,6 +533,7 @@ async function main() {
   assert.match(webappHtml, /api\/listings/);
   assert.match(webappHtml, /telegram-web-app\.js/);
   assert.match(webappHtml, /loading="lazy"/, "listing photos must lazy-load");
+  assert.match(webappHtml, /\/img\?u=/, "photos must load through the same-origin proxy");
 
   await handleTelegramUpdate(config, state, update("/start", 101));
   assert.equal(activeSubscribers(state, config).length, 1);

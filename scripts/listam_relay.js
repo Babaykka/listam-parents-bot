@@ -21,19 +21,32 @@ const baseConfig = loadConfig();
 const PENDING_FILE = path.join(baseConfig.dataDir, "relay-pending.json");
 const targetUrl = (process.env.RELAY_TARGET_URL || "https://listam-parents-bot.onrender.com").replace(/\/+$/, "");
 const intervalMinutes = Number(process.env.RELAY_INTERVAL_MINUTES || 0);
-const pagesPerCategory = Number(process.env.RELAY_PAGES_PER_CATEGORY || 2);
+const pagesPerCategory = Number(process.env.RELAY_PAGES_PER_CATEGORY || 6);
+// `npm run relay:auth` opens a real browser window so a human can pass the
+// List.am browser check once; the persistent profile keeps the clearance
+// cookie, and the scheduled headless relay then reuses that session.
+const authMode = process.argv.includes("auth") || process.env.RELAY_AUTH === "1";
 
-if (!process.env.INGEST_TOKEN) {
+if (!authMode && !process.env.INGEST_TOKEN) {
   console.error("INGEST_TOKEN is required. Copy it from the Render dashboard (service env vars) into .env");
   process.exit(1);
 }
 
 function relayScanConfig() {
+  if (authMode) {
+    return {
+      ...baseConfig,
+      scanPagesPerCategory: 1,
+      scanPageWaitSeconds: 240,
+      challengeWaitSeconds: 220,
+      headless: false,
+    };
+  }
   return {
     ...baseConfig,
     scanPagesPerCategory: Math.max(1, pagesPerCategory),
-    scanPageWaitSeconds: Math.min(baseConfig.scanPageWaitSeconds, 45),
-    challengeWaitSeconds: Math.min(baseConfig.challengeWaitSeconds, 30),
+    scanPageWaitSeconds: Math.min(baseConfig.scanPageWaitSeconds, 60),
+    challengeWaitSeconds: Math.min(baseConfig.challengeWaitSeconds, 45),
     headless: baseConfig.headless,
   };
 }
@@ -90,6 +103,16 @@ function clearPending() {
   fs.rmSync(PENDING_FILE, { force: true });
 }
 
+async function runAuth() {
+  console.log("[relay] opening a browser window. Solve the List.am check if it appears, then leave the page on listings.");
+  const result = await scanListAm(relayScanConfig());
+  if (result.listings.length > 0) {
+    console.log(`[relay] session works — scanned ${result.listings.length} listings. The scheduled relay will now reuse this session.`);
+  } else {
+    console.log("[relay] still blocked. Try again, and make sure the listings page fully loaded in the window before it closed.");
+  }
+}
+
 async function runOnce() {
   console.log(`[relay] scanning List.am locally (${pagesPerCategory} page(s) per category)`);
   const result = await scanListAm(relayScanConfig());
@@ -113,6 +136,10 @@ async function runOnce() {
 }
 
 async function main() {
+  if (authMode) {
+    await runAuth();
+    return;
+  }
   for (;;) {
     try {
       await runOnce();

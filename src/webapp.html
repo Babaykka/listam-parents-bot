@@ -24,27 +24,28 @@
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --surface: #1a1a19;
-      --card: #232322;
+      --surface: #17181c;
+      --card: #21232a;
       --text: #ffffff;
-      --text-2: #c3c2b7;
-      --text-3: #8a887f;
-      --line: #383835;
-      --chip: #2e2e2c;
-      --chip-on: #f0efec;
-      --chip-on-text: #111110;
-      --accent: #3987e5;
-      --good: #2fbf2f;
-      --warn: #fab219;
-      --why: #4fca82;
-      --why-bg: #1f2f25;
+      --text-2: #b7bcc9;
+      --text-3: #9298a6;
+      --line: #3a3d47;
+      --chip: #2c2f38;
+      --chip-on: #f2f3f5;
+      --chip-on-text: #14151a;
+      --accent: #5aa2f0;
+      --good: #3fce5a;
+      --warn: #ffc23d;
+      --why: #6bd898;
+      --why-bg: #1d2f26;
     }
   }
+  /* Take only surfaces + accent from Telegram; keep our own readable text/border
+     tokens, because Telegram Desktop's hint color is often too dim to read. */
   html.tg {
     --surface: var(--tg-theme-bg-color, var(--surface));
     --card: var(--tg-theme-secondary-bg-color, var(--card));
     --text: var(--tg-theme-text-color, var(--text));
-    --text-2: var(--tg-theme-hint-color, var(--text-2));
     --accent: var(--tg-theme-link-color, var(--accent));
   }
   * { box-sizing: border-box; }
@@ -55,7 +56,7 @@
     font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     padding-bottom: 40px;
   }
-  .wrap { max-width: 680px; margin: 0 auto; padding: 0 14px; }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 0 14px; }
 
   header { padding: 14px 0 6px; }
   h1 { font-size: 19px; margin: 0 0 2px; }
@@ -67,8 +68,10 @@
   .stat .lbl { font-size: 12px; color: var(--text-2); margin-top: 1px; }
 
   .sources { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 2px; }
-  .src { font-size: 12px; color: var(--text-2); background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; }
+  .src { font-size: 12.5px; color: var(--text); background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 4px 11px; }
   .src b { color: var(--text); font-weight: 600; }
+  .src.warn { border-color: var(--warn); }
+  .src .cnt { color: var(--text-2); }
 
   .filters {
     position: sticky; top: 0; z-index: 5;
@@ -93,7 +96,8 @@
   .chip.on { background: var(--chip-on); color: var(--chip-on-text); border-color: var(--chip-on); }
   select.chip { appearance: none; -webkit-appearance: none; }
 
-  .cards { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+  .cards { display: grid; grid-template-columns: 1fr; gap: 10px; margin-top: 8px; }
+  @media (min-width: 560px) { .cards { grid-template-columns: 1fr 1fr; } }
   a.card {
     display: block; text-decoration: none; color: inherit;
     background: var(--card); border: 1px solid var(--line);
@@ -253,8 +257,9 @@
     if (item.alsoSources && item.alsoSources.length) src += " +" + item.alsoSources.length;
 
     var freshBadge = isFresh(item) ? '<span class="fresh">новое</span>' : "";
-    var photo = item.imageUrl
-      ? '<div class="ph"><img loading="lazy" src="' + esc(item.imageUrl) + '" alt="">' + freshBadge + "</div>"
+    var proxied = item.imageUrl ? "/img?u=" + encodeURIComponent(item.imageUrl) : "";
+    var photo = proxied
+      ? '<div class="ph"><img loading="lazy" src="' + esc(proxied) + '" alt="">' + freshBadge + "</div>"
       : "";
     return '<a class="card" href="' + esc(item.url) + '" target="_blank" rel="noopener">'
       + photo
@@ -290,7 +295,8 @@
     var ok = meta.sources.filter(function (s) { return s.ok; }).length;
     $("statSources").textContent = ok + "/" + meta.sources.length;
     $("sources").innerHTML = meta.sources.map(function (s) {
-      return '<span class="src">' + (s.ok ? "✅" : "⚠️") + " <b>" + esc(s.label) + "</b>" + (s.ok ? " · " + s.listings : " · недоступен") + "</span>";
+      var tail = s.ok ? ' <span class="cnt">· ' + s.listings + "</span>" : ' <span class="cnt">· идёт проверка</span>';
+      return '<span class="src' + (s.ok ? "" : " warn") + '">' + (s.ok ? "✅" : "⏳") + " <b>" + esc(s.label) + "</b>" + tail + "</span>";
     }).join("");
     var sel = $("districtSel");
     meta.locations.forEach(function (loc) {

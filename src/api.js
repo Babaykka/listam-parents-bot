@@ -1,6 +1,6 @@
 const { compareListingActivity, daysSince } = require("./listingFreshness");
 const { visibleListings } = require("./listingStore");
-const { sourceStatusEntries } = require("./sourceHealth");
+const { mergedSourceEntries } = require("./sourceHealth");
 const { unique } = require("./utils");
 
 const MAX_API_LIMIT = 300;
@@ -89,7 +89,7 @@ function listingsApiPayload(state, config, query = {}, now = new Date()) {
     total: filtered.length,
     freshLast24h: freshCount(visible, now),
     locations: unique(visible.map((item) => item.location)).sort(),
-    sources: sourceStatusEntries(state).map((entry) => ({
+    sources: mergedSourceEntries(state).map((entry) => ({
       label: entry.label,
       listings: entry.listings,
       ok: !entry.degraded && !entry.blocked && !entry.lastError,

@@ -80,11 +80,47 @@ function sourceStatusEntries(state, options = {}) {
   });
 }
 
+const LISTAM_FAMILY = ["listam", "listam_relay", "listam_feed"];
+
+// For end users: collapse the List.am direct scan + relay + feed into one
+// "List.am" line. The direct scan is blocked on the server, but if the relay
+// (a real browser on a home machine) delivered listings, List.am is working —
+// users must not see a scary "недоступен" next to fresh List.am data.
+function mergedSourceEntries(state) {
+  const entries = sourceStatusEntries(state);
+  const family = entries.filter((entry) => LISTAM_FAMILY.includes(entry.source));
+  const others = entries.filter((entry) => !LISTAM_FAMILY.includes(entry.source));
+
+  const merged = [];
+  if (family.length > 0) {
+    const listings = family.reduce((sum, entry) => sum + Number(entry.listings || 0), 0);
+    const working = family.some((entry) => Number(entry.listings || 0) > 0 && !entry.degraded && !entry.blocked && !entry.lastError);
+    merged.push({
+      source: "listam",
+      label: "List.am",
+      listings,
+      durationMs: null,
+      blocked: false,
+      probeMode: null,
+      failStreak: working ? 0 : Number(family.find((entry) => entry.source === "listam")?.failStreak || 0),
+      degraded: !working,
+      lastError: null,
+      lastSuccessAt: family.map((entry) => entry.lastSuccessAt).filter(Boolean).sort().pop() || null,
+    });
+  }
+
+  const order = ["listam", "banali", "myrealty", "estate"];
+  return [...merged, ...others].sort(
+    (a, b) => (order.indexOf(a.source) + 1 || 99) - (order.indexOf(b.source) + 1 || 99)
+  );
+}
+
 module.exports = {
   CORE_SOURCES,
   DEGRADED_AFTER_FAILS,
   coreSourcesDown,
   isSourceDegraded,
+  mergedSourceEntries,
   sourceFailed,
   sourceLabel,
   sourceStatusEntries,

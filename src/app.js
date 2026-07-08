@@ -542,6 +542,65 @@ async function handleWebhook(req, res) {
 
 const WEBAPP_HTML = fs.readFileSync(path.join(__dirname, "webapp.html"), "utf8");
 
+// Listing photos are proxied through the bot so the browser loads them from one
+// origin: many source CDNs block hotlinking / require a same-site referer, which
+// made images silently fail in the Mini App. Allowlist prevents SSRF.
+const IMAGE_HOST_ALLOWLIST = /(^|\.)(list\.am|banali\.am|myrealty\.am|estate\.am)$/i;
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
+function imageReferer(hostname) {
+  const apex = hostname.split(".").slice(-2).join(".");
+  return `https://www.${apex}/`;
+}
+
+async function handleImageProxy(req, res, url) {
+  let target;
+  try {
+    target = new URL(url.searchParams.get("u") || "");
+  } catch {
+    text(res, 400, "bad image url");
+    return;
+  }
+  if (target.protocol !== "https:" || !IMAGE_HOST_ALLOWLIST.test(target.hostname)) {
+    text(res, 400, "image host not allowed");
+    return;
+  }
+
+  try {
+    const upstream = await fetch(target.href, {
+      headers: {
+        "user-agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
+        accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+        referer: imageReferer(target.hostname),
+      },
+      signal: AbortSignal.timeout(15000),
+    });
+    const contentType = upstream.headers.get("content-type") || "";
+    if (!upstream.ok || !/^image\//i.test(contentType)) {
+      res.writeHead(502);
+      res.end();
+      return;
+    }
+    const buffer = Buffer.from(await upstream.arrayBuffer());
+    if (buffer.length > MAX_IMAGE_BYTES) {
+      res.writeHead(413);
+      res.end();
+      return;
+    }
+    res.writeHead(200, {
+      "content-type": contentType,
+      "cache-control": "public, max-age=86400",
+      "content-length": buffer.length,
+    });
+    res.end(buffer);
+  } catch (error) {
+    console.warn(`[img] proxy failed for ${target.hostname}: ${error.message}`);
+    res.writeHead(504);
+    res.end();
+  }
+}
+
 function createServer() {
   return http.createServer(async (req, res) => {
     try {
@@ -559,6 +618,11 @@ function createServer() {
 
       if (req.method === "GET" && url.pathname === "/api/listings") {
         json(res, 200, listingsApiPayload(state, config, Object.fromEntries(url.searchParams)));
+        return;
+      }
+
+      if (req.method === "GET" && url.pathname === "/img") {
+        await handleImageProxy(req, res, url);
         return;
       }
 

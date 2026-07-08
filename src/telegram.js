@@ -2,7 +2,7 @@ const { activeSubscribers, deactivateSubscriber, defaultFilters, normalizeFilter
 const { parseFilterRequest } = require("./aiFilters");
 const { listingSourceKey } = require("./dedupe");
 const { compareListingActivity, daysSince, shouldNotifyListing } = require("./listingFreshness");
-const { sourceStatusEntries } = require("./sourceHealth");
+const { mergedSourceEntries, sourceStatusEntries } = require("./sourceHealth");
 const { clamp, escapeHtml, normalizeText, sleep } = require("./utils");
 
 const YEREVAN_DATE_FORMATTER = new Intl.DateTimeFormat("ru-RU", {
@@ -659,7 +659,7 @@ function sourceStatusLine(entry) {
 function statusText(config, state) {
   const activeCount = activeSubscribers(state, config).length;
   const blockedStreak = Number(state.scanHealth?.blockedStreak || 0);
-  const entries = sourceStatusEntries(state);
+  const entries = mergedSourceEntries(state);
 
   const lines = ["Бот работает и следит за объявлениями."];
   if (state.lastScan) {
