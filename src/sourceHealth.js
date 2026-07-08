@@ -52,10 +52,15 @@ function coreSourcesDown(state) {
   return CORE_SOURCES.every((source) => isSourceDegraded(state, source));
 }
 
-function sourceStatusEntries(state) {
+function sourceStatusEntries(state, options = {}) {
   const sources = state.scanHealth?.sources || {};
   const lastScanSources = state.lastScan?.sources || [];
-  const names = new Set([...lastScanSources.map((item) => item.source), ...Object.keys(sources)]);
+  // By default show only sources that took part in the last scan (an expired
+  // relay must not look permanently healthy); options.all keeps history for admins.
+  const names =
+    options.all || lastScanSources.length === 0
+      ? new Set([...lastScanSources.map((item) => item.source), ...Object.keys(sources)])
+      : new Set(lastScanSources.map((item) => item.source));
 
   return Array.from(names).map((source) => {
     const health = sources[source] || {};

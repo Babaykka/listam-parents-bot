@@ -393,7 +393,17 @@ function matchesSubscriber(config, subscriber, item) {
 }
 
 function filteredSortedListings(config, subscriber, listings, mode = "latest") {
-  const filtered = (listings || []).filter((item) => !item.duplicateOf && matchesSubscriber(config, subscriber, item));
+  // One entry per dedupe group: the canonical copy when it matches the
+  // subscriber's filters, otherwise a matching duplicate (e.g. when the
+  // canonical comes from a source this subscriber has hidden).
+  const groups = new Map();
+  for (const item of listings || []) {
+    if (!matchesSubscriber(config, subscriber, item)) continue;
+    const groupKey = item.duplicateOf || item.id;
+    const existing = groups.get(groupKey);
+    if (!existing || (!item.duplicateOf && existing.duplicateOf)) groups.set(groupKey, item);
+  }
+  const filtered = Array.from(groups.values());
   if (mode === "top") {
     filtered.sort((a, b) => rankScoreOf(b) - rankScoreOf(a) || a.priceUsd - b.priceUsd);
   } else {
@@ -404,11 +414,6 @@ function filteredSortedListings(config, subscriber, listings, mode = "latest") {
 
 function matchingListings(config, subscriber, listings, limit = 10, mode = "latest") {
   return filteredSortedListings(config, subscriber, listings, mode).slice(0, limit);
-}
-
-function matchingListingsPage(config, subscriber, listings, offset, limit, mode = "latest") {
-  const filtered = filteredSortedListings(config, subscriber, listings, mode);
-  return { items: filtered.slice(offset, offset + limit), total: filtered.length };
 }
 
 function groupLatestSections(config, listings, now = new Date()) {
@@ -680,10 +685,10 @@ function statusText(config, state) {
   return lines.map((line) => escapeHtml(line)).join("\n");
 }
 
-function latestKeyboard(offset) {
+function latestKeyboard() {
   return {
     inline_keyboard: [
-      [{ text: "Показать ещё", callback_data: `latest:more:${offset}` }],
+      [{ text: "Показать ещё", callback_data: "latest:more" }],
       [
         { text: "Только дома", callback_data: "latest:houses" },
         { text: "Только квартиры", callback_data: "latest:apartments" },
@@ -705,15 +710,26 @@ function sourcesKeyboard(subscriber) {
   };
 }
 
-async function sendListingsPageWithMore(config, state, subscriber, chatId, offset) {
-  const { items, total } = matchingListingsPage(config, subscriber, state.listings || [], offset, 8, "latest");
+function rememberShownListings(subscriber, items) {
+  const shown = new Set(subscriber.latestSession?.shownIds || []);
+  for (const item of items) shown.add(item.id);
+  subscriber.latestSession = {
+    shownIds: Array.from(shown).slice(-200),
+    at: new Date().toISOString(),
+  };
+}
+
+async function sendListingsPageWithMore(config, state, subscriber, chatId) {
+  const shown = new Set(subscriber.latestSession?.shownIds || []);
+  const remaining = filteredSortedListings(config, subscriber, state.listings || [], "latest").filter((item) => !shown.has(item.id));
+  const items = remaining.slice(0, 8);
   if (items.length === 0) return false;
 
+  rememberShownListings(subscriber, items);
   const chunks = chunkListings("Ещё варианты", items, config);
-  const nextOffset = offset + items.length;
   for (let index = 0; index < chunks.length; index += 1) {
     const isLast = index === chunks.length - 1;
-    const options = isLast && nextOffset < total ? { replyMarkup: latestKeyboard(nextOffset) } : {};
+    const options = isLast && remaining.length > items.length ? { replyMarkup: latestKeyboard() } : {};
     await sendMessage(config, chatId, chunks[index], options);
   }
   return true;
@@ -731,63 +747,72 @@ async function handleCallbackQuery(config, state, callbackQuery, hooks = {}) {
     return true;
   }
 
-  const subscriber = upsertSubscriber(config, state, chat, callbackQuery.from);
+  // Unlike commands, a button tap must not re-activate a /stop-ped subscriber.
+  const subscriber =
+    (state.subscribers || []).find((item) => String(item.id) === String(chat.id)) ||
+    upsertSubscriber(config, state, chat, callbackQuery.from);
   subscriber.filters = normalizeFilters(config, subscriber.filters);
 
-  if (data.startsWith("latest:more:")) {
-    const offset = Math.max(0, Math.round(Number(data.split(":")[2]) || 0));
-    const sent = await sendListingsPageWithMore(config, state, subscriber, chat.id, offset);
-    await answer(sent ? undefined : "Больше подходящих вариантов пока нет");
-    return true;
-  }
-
-  if (data === "latest:houses" || data === "latest:apartments") {
-    const categoryKey = data === "latest:houses" ? "house" : "apartment";
-    const scoped = scopedSubscriberForCategories(config, subscriber, [categoryKey]);
-    const sent = await sendSavedMatches(config, state, scoped, chat.id, {
-      limit: 8,
-      title: categoryKey === "house" ? "Последние дома по фильтрам" : "Последние квартиры по фильтрам",
-    });
-    await answer(sent ? undefined : "Пока нет таких вариантов");
-    return true;
-  }
-
-  if (data === "flt:minarea:70") {
-    subscriber.filters.minAreaSqm = 70;
-    await answer("Теперь показываю только от 70 м²");
-    await sendMessage(config, chat.id, `Фильтр обновлён: площадь от 70 м².\n\n${filtersText(config, subscriber.filters)}`);
-    return true;
-  }
-
-  if (data === "src:menu") {
-    await answer();
-    await sendMessage(config, chat.id, "Какие источники показывать? Нажми, чтобы скрыть или вернуть:", {
-      replyMarkup: sourcesKeyboard(subscriber),
-    });
-    return true;
-  }
-
-  if (data.startsWith("src:toggle:")) {
-    const source = data.split(":")[2];
-    if (!TOGGLE_SOURCES.some(([key]) => key === source)) {
-      await answer();
+  try {
+    if (data.startsWith("latest:more")) {
+      const sent = await sendListingsPageWithMore(config, state, subscriber, chat.id);
+      await answer(sent ? undefined : "Больше подходящих вариантов пока нет");
       return true;
     }
-    const excluded = new Set(subscriber.filters.excludeSources || []);
-    const nowExcluded = !excluded.has(source);
-    if (nowExcluded) excluded.add(source);
-    else excluded.delete(source);
-    subscriber.filters.excludeSources = Array.from(excluded);
-    await answer(nowExcluded ? `${toggleSourceLabel(source)} скрыт` : `${toggleSourceLabel(source)} снова показывается`);
-    await telegramApi(config, "editMessageReplyMarkup", {
-      chat_id: chat.id,
-      message_id: callbackQuery.message.message_id,
-      reply_markup: sourcesKeyboard(subscriber),
-    }).catch((error) => console.warn(`[telegram] editMessageReplyMarkup failed: ${error.message}`));
-    return true;
-  }
 
-  await answer();
+    if (data === "latest:houses" || data === "latest:apartments") {
+      const categoryKey = data === "latest:houses" ? "house" : "apartment";
+      const scoped = scopedSubscriberForCategories(config, subscriber, [categoryKey]);
+      const sent = await sendSavedMatches(config, state, scoped, chat.id, {
+        limit: 8,
+        title: categoryKey === "house" ? "Последние дома по фильтрам" : "Последние квартиры по фильтрам",
+      });
+      await answer(sent ? undefined : "Пока нет таких вариантов");
+      return true;
+    }
+
+    if (data === "flt:minarea:70") {
+      subscriber.filters.minAreaSqm = 70;
+      await answer("Теперь показываю только от 70 м²");
+      await sendMessage(config, chat.id, `Фильтр обновлён: площадь от 70 м².\n\n${filtersText(config, subscriber.filters)}`);
+      return true;
+    }
+
+    if (data === "src:menu") {
+      await answer();
+      await sendMessage(config, chat.id, "Какие источники показывать? Нажми, чтобы скрыть или вернуть:", {
+        replyMarkup: sourcesKeyboard(subscriber),
+      });
+      return true;
+    }
+
+    if (data.startsWith("src:toggle:")) {
+      const source = data.split(":")[2];
+      if (!TOGGLE_SOURCES.some(([key]) => key === source)) {
+        await answer();
+        return true;
+      }
+      const excluded = new Set(subscriber.filters.excludeSources || []);
+      const nowExcluded = !excluded.has(source);
+      if (nowExcluded) excluded.add(source);
+      else excluded.delete(source);
+      subscriber.filters.excludeSources = Array.from(excluded);
+      await answer(nowExcluded ? `${toggleSourceLabel(source)} скрыт` : `${toggleSourceLabel(source)} снова показывается`);
+      await telegramApi(config, "editMessageReplyMarkup", {
+        chat_id: chat.id,
+        message_id: callbackQuery.message.message_id,
+        reply_markup: sourcesKeyboard(subscriber),
+      }).catch((error) => console.warn(`[telegram] editMessageReplyMarkup failed: ${error.message}`));
+      return true;
+    }
+
+    await answer();
+  } catch (error) {
+    // Swallow errors: a thrown callback would 500 the webhook and make
+    // Telegram redeliver the update, duplicating messages.
+    console.error(`[telegram] callback ${data} failed: ${error.stack || error.message}`);
+    await answer("Не получилось, попробуй ещё раз");
+  }
   return true;
 }
 
@@ -1509,14 +1534,14 @@ async function handleCommand(config, state, message, hooks = {}) {
     }
     const sections = groupLatestSections(config, matched);
     const chunks = [];
-    let shown = 0;
+    subscriber.latestSession = null;
     for (const section of sections) {
       chunks.push(...chunkListings(section.title, section.items, config));
-      shown += section.items.length;
+      rememberShownListings(subscriber, section.items);
     }
     for (let index = 0; index < chunks.length; index += 1) {
       const isLast = index === chunks.length - 1;
-      await sendMessage(config, chat.id, chunks[index], isLast ? { replyMarkup: latestKeyboard(shown) } : {});
+      await sendMessage(config, chat.id, chunks[index], isLast ? { replyMarkup: latestKeyboard() } : {});
     }
     return true;
   }
@@ -1612,7 +1637,7 @@ function adminStatusText(config, state) {
 }
 
 function adminSourcesText(state) {
-  const entries = sourceStatusEntries(state);
+  const entries = sourceStatusEntries(state, { all: true });
   if (entries.length === 0) return "Данных по источникам еще нет: скан не выполнялся.";
   const lines = ["<b>Источники</b>"];
   for (const entry of entries) {
@@ -1774,10 +1799,18 @@ async function notifySubscribers(config, state, newListings) {
   let sentMessages = 0;
   let deactivatedSubscribers = 0;
 
+  const cachedById = new Map((state.listings || []).map((item) => [item.id, item]));
   for (const subscriber of recipients) {
     if (subscriber.active === false) continue;
     subscriber.filters = normalizeFilters(config, subscriber.filters);
-    const matches = notifiableListings.filter((item) => matchesSubscriber(config, subscriber, item));
+    const matches = notifiableListings.filter((item) => {
+      if (!matchesSubscriber(config, subscriber, item)) return false;
+      // A duplicate is only worth sending when its canonical copy does not
+      // reach this subscriber (it was already sent or will be sent instead).
+      const canonical = item.duplicateOf ? cachedById.get(item.duplicateOf) : null;
+      if (canonical && matchesSubscriber(config, subscriber, canonical)) return false;
+      return true;
+    });
     if (matches.length === 0) continue;
     matchedSubscribers += 1;
     totalMatches += matches.length;

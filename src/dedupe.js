@@ -37,10 +37,11 @@ function isLikelyDuplicate(a, b) {
   const floorB = Number(b.floor?.current || 0);
   if (floorA && floorB && floorA !== floorB) return false;
 
+  // Same district + similar price/area is not enough to merge two listings;
+  // require a structural match (rooms or floor) known on both sides.
   const confirmations = [
     roomsA && roomsB && roomsA === roomsB,
     floorA && floorB && floorA === floorB,
-    a.location && b.location && a.location === b.location,
   ].filter(Boolean).length;
   return confirmations >= 1;
 }

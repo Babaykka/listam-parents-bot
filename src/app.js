@@ -179,7 +179,12 @@ function combineScanResults(primary, fallbacks = []) {
   const sources = [primary, ...fallbacks].filter(Boolean);
   const byId = new Map();
   for (const result of sources) {
-    for (const item of result.listings) byId.set(item.id, item);
+    for (const item of result.listings) {
+      const existing = byId.get(item.id);
+      // A relayed copy may be hours old; keep whichever snapshot is newer.
+      if (existing && String(existing.scannedAt || "") >= String(item.scannedAt || "")) continue;
+      byId.set(item.id, item);
+    }
   }
   const listings = Array.from(byId.values()).sort(compareListingActivity);
 
@@ -300,16 +305,18 @@ async function runScanCycle(reason = "schedule") {
     state.listings = mergeListings(state.listings, result.listings, config);
 
     const mergedById = new Map(state.listings.map((item) => [item.id, item]));
-    const notifiableListings = newListings
-      .map((item) => mergedById.get(item.id) || item)
-      .filter((item) => !item.duplicateOf);
+    // Keep duplicates in the batch: notifySubscribers suppresses them per
+    // subscriber (a duplicate is still sent when its canonical is filtered
+    // out for that subscriber, e.g. by a hidden source).
+    const notifiableListings = newListings.map((item) => mergedById.get(item.id) || item);
+    const duplicatesInBatch = notifiableListings.filter((item) => item.duplicateOf).length;
 
     state.lastScan = {
       at: result.scannedAt,
       reason,
       scanned: result.listings.length,
       new: newListings.length,
-      duplicatesSuppressed: newListings.length - notifiableListings.length,
+      duplicatesSuppressed: duplicatesInBatch,
       skipped: result.skipped.length,
       blocked: challengeBlocked,
       skippedDetails: result.skipped.slice(0, 5),

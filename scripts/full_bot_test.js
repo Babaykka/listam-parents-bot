@@ -303,10 +303,36 @@ async function main() {
   const mergedCache = mergeListings([banaliOriginal], [myrealtyCopy], config);
   const mergedCopy = mergedCache.find((item) => item.id === "myrealty:200");
   assert.equal(mergedCopy.duplicateOf, "banali:D100", "later-found cross-source copy must be marked as duplicate");
+  const defaultView = telegramTest.matchingListings(config, { filters: {} }, mergedCache, 10, "latest");
+  assert.equal(defaultView.some((item) => item.id === "myrealty:200"), false, "duplicates must not reach listing output");
+  assert.equal(defaultView.some((item) => item.id === "banali:D100"), true);
+  const banaliHiddenView = telegramTest.matchingListings(config, { filters: { excludeSources: ["banali"] } }, mergedCache, 10, "latest");
+  assert.equal(banaliHiddenView.some((item) => item.id === "banali:D100"), false);
   assert.equal(
-    telegramTest.matchingListings(config, { filters: {} }, mergedCache, 10, "latest").some((item) => item.id === "myrealty:200"),
+    banaliHiddenView.some((item) => item.id === "myrealty:200"),
+    true,
+    "when the canonical source is hidden, the duplicate must represent the group"
+  );
+
+  const dupNotifyState = {
+    listings: mergedCache,
+    subscribers: [
+      { id: "701", active: true, filters: { excludeSources: ["banali"] } },
+      { id: "702", active: true, filters: {} },
+    ],
+  };
+  const beforeDupNotify = fake.messages.length;
+  await notifySubscribers(config, dupNotifyState, [mergedCache.find((item) => item.id === "myrealty:200")]);
+  const dupNotifyMessages = fake.messages.slice(beforeDupNotify);
+  assert.equal(
+    dupNotifyMessages.some((message) => String(message.chat_id) === "701" && /myrealty\.am/.test(message.text)),
+    true,
+    "subscriber hiding the canonical source must still get the duplicate"
+  );
+  assert.equal(
+    dupNotifyMessages.some((message) => String(message.chat_id) === "702"),
     false,
-    "duplicates must not reach listing output"
+    "subscriber who already receives the canonical must not get the duplicate"
   );
 
   const healthState = { scanHealth: {} };
@@ -439,7 +465,8 @@ async function main() {
   assert.doesNotMatch(latestMessages, /Район: Abovyan/);
   const latestKeyboardMessage = fake.messages.at(-1);
   assert(latestKeyboardMessage.reply_markup?.inline_keyboard?.length >= 3, "/latest must attach inline buttons");
-  assert.match(JSON.stringify(latestKeyboardMessage.reply_markup), /latest:more:/);
+  assert.match(JSON.stringify(latestKeyboardMessage.reply_markup), /latest:more/);
+  assert(subscriber.latestSession?.shownIds?.length >= 1, "/latest must remember what it already showed");
 
   const freshSectionNow = new Date("2026-07-08T12:00:00.000Z");
   const groupedSections = telegramTest.groupLatestSections(
@@ -456,9 +483,15 @@ async function main() {
     [["fresh", 1], ["raised", 1], ["value", 1]]
   );
 
-  const beforeMoreCallback = fake.messages.length;
-  await handleTelegramUpdate(config, state, callbackUpdate("latest:more:0", 101));
+  const beforeExhaustedMore = fake.messages.length;
+  await handleTelegramUpdate(config, state, callbackUpdate("latest:more", 101));
   assert(fake.calls.some((call) => call.method === "answerCallbackQuery"), "callback queries must be answered");
+  assert.equal(fake.messages.length, beforeExhaustedMore, "everything was already shown, no repeats allowed");
+  assert.match(fake.calls.at(-1).body.text || "", /Больше подходящих вариантов пока нет/);
+
+  subscriber.latestSession = null;
+  const beforeMoreCallback = fake.messages.length;
+  await handleTelegramUpdate(config, state, callbackUpdate("latest:more", 101));
   const moreMessages = fake.messages.slice(beforeMoreCallback).map((message) => message.text).join("\n");
   assert.match(moreMessages, /Ещё варианты/);
 
