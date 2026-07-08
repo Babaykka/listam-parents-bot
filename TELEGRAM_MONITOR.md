@@ -93,6 +93,8 @@ List.am показывает проверку браузера дата-цент
 
 Relay-данные считаются устаревшими через `RELAY_MAX_AGE_MINUTES` (по умолчанию 180 минут) и перестают участвовать в сканах, пока не придёт новый push.
 
+Автозапуск на macOS: скопируй `docs/com.listam.relay.plist.example` в `~/Library/LaunchAgents/com.listam.relay.plist` (поправь пути) и выполни `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.listam.relay.plist`. Relay будет запускаться каждые 20 минут, логи в `~/Library/Logs/listam-relay.log`. Проверка браузера на List.am плавающая: часть запусков проходит, каждый успешный push кормит бота до 3 часов. Отключить: `launchctl bootout gui/$(id -u)/com.listam.relay`.
+
 ## Команды администратора
 
 Доступны чатам из `ADMIN_CHAT_IDS` (env var на Render, id через запятую):

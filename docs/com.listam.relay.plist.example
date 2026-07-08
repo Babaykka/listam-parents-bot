@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.listam.relay</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/hrach/.local/bin/node</string>
+    <string>/Users/hrach/Downloads/Дом/scripts/listam_relay.js</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/hrach/Downloads/Дом</string>
+  <key>StartInterval</key>
+  <integer>1200</integer>
+  <key>RunAtLoad</key>
+  <false/>
+  <key>StandardOutPath</key>
+  <string>/Users/hrach/Library/Logs/listam-relay.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/hrach/Library/Logs/listam-relay.log</string>
+</dict>
+</plist>

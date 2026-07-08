@@ -31,7 +31,7 @@ function relayScanConfig() {
     scanPagesPerCategory: Math.max(1, pagesPerCategory),
     scanPageWaitSeconds: Math.min(baseConfig.scanPageWaitSeconds, 45),
     challengeWaitSeconds: Math.min(baseConfig.challengeWaitSeconds, 30),
-    headless: true,
+    headless: baseConfig.headless,
   };
 }
 
