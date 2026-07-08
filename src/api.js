@@ -28,7 +28,7 @@ function publicListingView(item) {
     updatedAt: item.updatedAt || null,
     discoveredAt: item.discoveredAt || null,
     url: item.url,
-    sourceLabel: item.sourceLabel || "",
+    sourceLabel: item.sourceLabel || (/list\.am/i.test(String(item.url || "")) ? "List.am" : ""),
     alsoSources: (item.alsoSources || []).map((entry) => entry.label),
     whyGood: item.whyGood || [],
     valueScore: item.valueScore ?? null,
