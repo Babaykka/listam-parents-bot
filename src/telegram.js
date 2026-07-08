@@ -1555,6 +1555,10 @@ async function handleCommand(config, state, message, hooks = {}) {
     return triggerManualScan(config, state, chat.id, hooks);
   }
 
+  if (command.startsWith("/admin")) {
+    return handleAdminCommand(config, state, chat, command, args, hooks);
+  }
+
   if (command.startsWith("/")) {
     await sendMessage(config, chat.id, "Не понял команду. Нажми /tour, если хочешь быстро понять, как работает бот, или /help для всех команд.");
     return true;
@@ -1567,6 +1571,166 @@ async function handleCommand(config, state, message, hooks = {}) {
   }
 
   return false;
+}
+
+function adminHelpText() {
+  return [
+    "<b>Команды администратора</b>",
+    "/admin_status - подробный статус бота",
+    "/admin_sources - состояние каждого источника",
+    "/admin_rescan - принудительный скан с полной проверкой List.am",
+    "/admin_broadcast текст - подготовить рассылку всем подписчикам",
+    "/admin_broadcast_send - отправить подготовленную рассылку",
+    "/admin_debug id - показать объявление из кеша как JSON",
+  ].join("\n");
+}
+
+function adminStatusText(config, state) {
+  const subscribers = state.subscribers || [];
+  const active = subscribers.filter((subscriber) => subscriber.active !== false).length;
+  const listings = state.listings || [];
+  const duplicates = listings.filter((item) => item.duplicateOf).length;
+  const relay = state.relay?.listam;
+  const memoryMb = Math.round(process.memoryUsage().rss / (1024 * 1024));
+  const lastScan = state.lastScan;
+  return [
+    "<b>Админ-статус</b>",
+    `Аптайм процесса: ${Math.round(process.uptime() / 60)} мин, память: ${memoryMb} МБ`,
+    `Подписчики: ${active} активных из ${subscribers.length}`,
+    `Кеш объявлений: ${listings.length} (из них дубликатов: ${duplicates}), seenIds: ${(state.seenIds || []).length}`,
+    lastScan
+      ? escapeHtml(
+          `Последний скан: ${lastScan.at} (${lastScan.reason || "schedule"}), найдено ${lastScan.scanned}, новых ${lastScan.new}, подавлено дубликатов ${lastScan.duplicatesSuppressed || 0}${lastScan.error ? `, ошибка: ${lastScan.error}` : ""}`
+        )
+      : "Скана еще не было",
+    `Блок-стрик List.am: ${Number(state.scanHealth?.blockedStreak || 0)}`,
+    relay
+      ? escapeHtml(`Relay List.am: ${relay.listings?.length || 0} объявлений, получено ${relativeTimeText(relay.receivedAt) || relay.receivedAt}`)
+      : "Relay List.am: данных не поступало",
+    escapeHtml(`Следующий скан: ${state.nextScanAt || "планируется"}`),
+  ].join("\n");
+}
+
+function adminSourcesText(state) {
+  const entries = sourceStatusEntries(state);
+  if (entries.length === 0) return "Данных по источникам еще нет: скан не выполнялся.";
+  const lines = ["<b>Источники</b>"];
+  for (const entry of entries) {
+    const details = [
+      `последний скан: ${listingsCountText(entry.listings)}`,
+      entry.durationMs ? `${Math.max(1, Math.round(entry.durationMs / 1000))}с` : null,
+      entry.failStreak ? `подряд неудач: ${entry.failStreak}` : null,
+      entry.lastError ? `ошибка: ${entry.lastError}` : null,
+      entry.lastSuccessAt ? `успех ${relativeTimeText(entry.lastSuccessAt) || entry.lastSuccessAt}` : null,
+    ].filter(Boolean);
+    lines.push(escapeHtml(`${entry.degraded || entry.blocked ? "⚠️" : "✅"} ${entry.label}: ${details.join(", ")}`));
+  }
+  return lines.join("\n");
+}
+
+async function broadcastToSubscribers(config, state, text) {
+  const recipients = activeSubscribers(state, config);
+  let sent = 0;
+  let failed = 0;
+  for (const recipient of recipients) {
+    try {
+      await sendMessage(config, recipient.id, text);
+      sent += 1;
+    } catch (error) {
+      failed += 1;
+      console.error(`[telegram] broadcast failed for ${recipient.id}: ${error.message}`);
+      if (isPermanentTelegramDeliveryError(error)) deactivateSubscriber(state, recipient.id);
+    }
+  }
+  return { sent, failed, total: recipients.length };
+}
+
+async function handleAdminCommand(config, state, chat, command, args, hooks = {}) {
+  if (!config.adminChatIds.has(String(chat.id))) {
+    await sendMessage(config, chat.id, "Эта команда доступна только администратору бота.");
+    return true;
+  }
+
+  if (command === "/admin" || command === "/admin_help") {
+    await sendMessage(config, chat.id, adminHelpText());
+    return true;
+  }
+
+  if (command === "/admin_status") {
+    await sendMessage(config, chat.id, adminStatusText(config, state));
+    return true;
+  }
+
+  if (command === "/admin_sources") {
+    await sendMessage(config, chat.id, adminSourcesText(state));
+    return true;
+  }
+
+  if (command === "/admin_rescan") {
+    state.scanHealth ||= {};
+    state.scanHealth.lastListamFullProbeAt = null;
+    await sendMessage(config, chat.id, "Запускаю принудительный скан всех источников с полной проверкой List.am.");
+    Promise.resolve(hooks.scanNow?.()).catch((error) => console.error(`[telegram] admin rescan failed: ${error.message}`));
+    return true;
+  }
+
+  if (command === "/admin_broadcast") {
+    const text = normalizeText(args.join(" "));
+    if (!text) {
+      await sendMessage(config, chat.id, "Пример: /admin_broadcast Обновил бота, нажмите /start\nПосле проверки текста отправь /admin_broadcast_send");
+      return true;
+    }
+    state.pendingAdminBroadcast = { text, by: String(chat.id), at: new Date().toISOString() };
+    await sendMessage(
+      config,
+      chat.id,
+      [
+        "<b>Черновик рассылки</b>",
+        escapeHtml(text),
+        "",
+        `Получателей: ${activeSubscribers(state, config).length}`,
+        "Отправить: /admin_broadcast_send",
+        "Отменить: просто не отправляй.",
+      ].join("\n")
+    );
+    return true;
+  }
+
+  if (command === "/admin_broadcast_send") {
+    const pending = state.pendingAdminBroadcast;
+    if (!pending?.text) {
+      await sendMessage(config, chat.id, "Нет подготовленной рассылки. Сначала: /admin_broadcast текст");
+      return true;
+    }
+    delete state.pendingAdminBroadcast;
+    const result = await broadcastToSubscribers(config, state, escapeHtml(pending.text));
+    await sendMessage(config, chat.id, `Рассылка отправлена: ${result.sent} из ${result.total}${result.failed ? `, ошибок: ${result.failed}` : ""}.`);
+    return true;
+  }
+
+  if (command === "/admin_debug") {
+    const query = normalizeText(args.join(" ")).toLowerCase();
+    if (!query) {
+      await sendMessage(config, chat.id, "Пример: /admin_debug 22979765 или /admin_debug banali:H47316");
+      return true;
+    }
+    const found = (state.listings || []).find(
+      (item) =>
+        String(item.id).toLowerCase() === query ||
+        String(item.id).toLowerCase().includes(query) ||
+        String(item.url || "").toLowerCase().includes(query)
+    );
+    if (!found) {
+      await sendMessage(config, chat.id, `Объявление «${escapeHtml(query)}» в кеше не найдено.`);
+      return true;
+    }
+    const dump = JSON.stringify(found, null, 1).slice(0, 3500);
+    await sendMessage(config, chat.id, `<pre>${escapeHtml(dump)}</pre>`, { disablePreview: true });
+    return true;
+  }
+
+  await sendMessage(config, chat.id, adminHelpText());
+  return true;
 }
 
 async function handleTelegramUpdate(config, state, update, hooks = {}) {

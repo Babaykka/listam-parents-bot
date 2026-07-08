@@ -642,6 +642,43 @@ async function main() {
   assert.match(fake.messages.at(-1).text, /Бот работает/);
   assert.match(fake.messages.at(-1).text, /проверку браузера/);
 
+  await handleTelegramUpdate(config, state, update("/admin_status", 101));
+  assert.match(fake.messages.at(-1).text, /только администратору/);
+
+  config.adminChatIds = new Set(["909"]);
+  await handleTelegramUpdate(config, state, update("/admin", 909));
+  assert.match(fake.messages.at(-1).text, /Команды администратора/);
+
+  await handleTelegramUpdate(config, state, update("/admin_status", 909));
+  assert.match(fake.messages.at(-1).text, /Админ-статус/);
+  assert.match(fake.messages.at(-1).text, /Кеш объявлений/);
+
+  await handleTelegramUpdate(config, state, update("/admin_sources", 909));
+  assert.match(fake.messages.at(-1).text, /скан не выполнялся|Источники/);
+
+  let adminScanCount = 0;
+  state.scanHealth.lastListamFullProbeAt = "2026-07-08T00:00:00.000Z";
+  await handleTelegramUpdate(config, state, update("/admin_rescan", 909), { scanNow: () => { adminScanCount += 1; } });
+  assert.equal(adminScanCount, 1);
+  assert.equal(state.scanHealth.lastListamFullProbeAt, null, "admin rescan must force a full List.am probe");
+
+  await handleTelegramUpdate(config, state, update("/admin_broadcast Тест рассылки <b>", 909));
+  assert.match(fake.messages.at(-1).text, /Черновик рассылки/);
+  assert(state.pendingAdminBroadcast?.text.includes("Тест рассылки"));
+  const beforeBroadcast = fake.messages.length;
+  await handleTelegramUpdate(config, state, update("/admin_broadcast_send", 909));
+  const broadcastMessages = fake.messages.slice(beforeBroadcast);
+  assert(broadcastMessages.some((message) => /Тест рассылки/.test(message.text) && /&lt;b&gt;/.test(message.text)), "broadcast must be HTML-escaped");
+  assert.match(fake.messages.at(-1).text, /Рассылка отправлена/);
+  assert.equal(state.pendingAdminBroadcast, undefined);
+
+  await handleTelegramUpdate(config, state, update("/admin_debug 100001", 909));
+  assert.match(fake.messages.at(-1).text, /<pre>/);
+  assert.match(fake.messages.at(-1).text, /100001/);
+  await handleTelegramUpdate(config, state, update("/admin_debug missing-id-xyz", 909));
+  assert.match(fake.messages.at(-1).text, /не найдено/);
+  config.adminChatIds = new Set();
+
   await handleTelegramUpdate(config, state, update("/stop", 101));
   assert.equal(state.subscribers.find((item) => String(item.id) === "101").active, false);
   await handleTelegramUpdate(config, state, update("/start", 101));

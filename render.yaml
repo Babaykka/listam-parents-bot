@@ -49,6 +49,8 @@ services:
         value: ""
       - key: INGEST_TOKEN
         generateValue: true
+      - key: ADMIN_CHAT_IDS
+        sync: false
       - key: RELAY_MAX_AGE_MINUTES
         value: "180"
       - key: NAVIGATION_TIMEOUT_MS
