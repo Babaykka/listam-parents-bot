@@ -816,15 +816,15 @@ async function handleCallbackQuery(config, state, callbackQuery, hooks = {}) {
   return true;
 }
 
-function commandKeyboard() {
+function commandKeyboard(config, chat) {
+  const catalogButton =
+    chat?.type === "private" && config.publicUrl
+      ? { text: "Каталог", web_app: { url: `${config.publicUrl}/app` } }
+      : { text: "/app" };
   return {
     keyboard: [
-      [{ text: "/tour" }, { text: "/setup" }],
-      [{ text: "/latest" }, { text: "/top" }],
+      [catalogButton, { text: "/latest" }],
       [{ text: "/filters" }, { text: "/status" }],
-      [{ text: "/houses" }, { text: "/apartments" }],
-      [{ text: "/scan" }, { text: "/test" }],
-      [{ text: "/help" }],
     ],
     resize_keyboard: true,
   };
@@ -846,12 +846,10 @@ function tourText(config) {
     `<i>дом до 120к, до 30 минут от центра, участок от 200 м²</i>`,
     "",
     `<b>Главные кнопки</b>`,
-    `/app - каталог всех вариантов с фильтрами`,
-    `/setup - примеры настройки`,
-    `/latest - уже найденные варианты`,
+    `Каталог (или /app) - все варианты с фильтрами в один тап`,
+    `/latest - свежие варианты прямо в чат`,
     `/filters - что сейчас ищем`,
     `/status - работает ли монитор`,
-    `/scan - проверить источники прямо сейчас`,
     "",
     `По умолчанию бюджет до ${money(config.maxPriceUsd)}. Команды знать не нужно: можно писать обычным текстом.`,
   ].join("\n");
@@ -861,43 +859,22 @@ function helpText(config, state) {
   const username = state.bot?.username ? `@${state.bot.username}` : "бота";
   return [
     `<b>Как работает бот</b>`,
-    `Бот периодически проверяет несколько сайтов с недвижимостью. Если появилось новое объявление под твои фильтры, он присылает его сюда.`,
+    `Я проверяю несколько сайтов с недвижимостью каждые ${config.scanIntervalMinutes} мин и присылаю сюда только новые объявления под твои фильтры.`,
     "",
-    `<b>Как настроить проще всего</b>`,
-    `Просто напиши обычным текстом, что нужно:`,
-    `<i>2-3 комнаты до 110к, не выше 5 этажа, без агентств</i>`,
-    `Бот покажет будущие фильтры. Применить их можно командой /apply.`,
+    `<b>Настройка — обычным текстом</b>`,
+    `Напиши, что ищешь: <i>2-3 комнаты до 110к, не выше 5 этажа, без агентств</i>`,
+    `Я покажу, как понял, и попрошу подтвердить через /apply.`,
     "",
-    `<b>Главное</b>`,
-    `/tour - короткое объяснение с нуля`,
-    `/setup - примеры и пресеты`,
-    `/latest - последние варианты`,
-    `/top - лучшие по качеству`,
-    `/houses - дома по твоим фильтрам`,
-    `/apartments - квартиры по твоим фильтрам`,
-    `/filters - показать фильтры`,
-    `/status - проверить монитор`,
-    `/scan - запустить внеочередной скан`,
-    `/test - проверить доставку Telegram`,
-    `/share - ссылка, чтобы передать ${escapeHtml(username)}`,
+    `<b>Команды</b>`,
+    `/app - каталог всех вариантов с фильтрами`,
+    `/latest - свежие варианты в чат`,
+    `/filters - что я сейчас ищу`,
+    `/status - работает ли бот`,
+    `/scan - проверить источники прямо сейчас`,
+    `/stop - выключить уведомления`,
     "",
-    `<b>Точная ручная настройка</b>`,
-    `/price 80000-120000 - диапазон цены`,
-    `/budget 100000 - цена до суммы`,
-    `/rooms 2-3 - комнаты`,
-    `/area 50-100 - площадь`,
-    `/land 100-600 - участок для домов`,
-    `/sqm 1600 - цена за м² до суммы`,
-    `/floor 1-4 - этаж`,
-    `/distance 25 - до центра не дальше минут`,
-    `/elevator yes - только с лифтом`,
-    `/condition ready - с ремонтом`,
-    `/keywords gas, balcony - обязательные слова`,
-    `/exclude agency - исключить слова`,
-    `/areas Avan, Nor Nork, Abovyan - районы`,
-    `/types apartment, house - тип жилья`,
-    `/score 6 - минимальное качество 0-10`,
-    `/reset - сбросить все фильтры`,
+    `Тонкая ручная настройка командами: /setup`,
+    `Поделиться ботом: ${escapeHtml(username)}`,
   ].join("\n");
 }
 
@@ -917,6 +894,12 @@ function setupText() {
     `/preset apartment - только квартиры`,
     `/preset house - только дома`,
     `/preset near - ближе к центру`,
+    "",
+    `<b>Точная ручная настройка</b>`,
+    `/price 80000-120000, /budget 100000, /rooms 2-3, /area 50-100`,
+    `/land 100-600, /sqm 1600, /floor 1-4, /distance 25`,
+    `/elevator yes, /condition ready, /keywords gas, /exclude agency`,
+    `/areas Avan, Nor Nork, /types apartment, /score 6, /reset`,
     "",
     `После любого пресета можно снова написать обычным текстом, и бот обновит фильтры.`,
   ].join("\n");
@@ -1218,40 +1201,18 @@ async function configureTelegram(config, state) {
     });
   }
 
+  // The Mini App covers browsing; the menu stays minimal. Old commands keep
+  // working when typed, they are just not advertised.
   await setupTelegramApi(config, "setMyCommands", {
     commands: [
       { command: "start", description: "Включить подписку" },
-      { command: "app", description: "Открыть каталог" },
-      { command: "tour", description: "Как работает бот" },
-      { command: "latest", description: "Последние варианты" },
-      { command: "top", description: "Лучшие по качеству" },
-      { command: "houses", description: "Дома по фильтрам" },
-      { command: "apartments", description: "Квартиры по фильтрам" },
-      { command: "filters", description: "Мои фильтры" },
-      { command: "test", description: "Проверить доставку" },
-      { command: "scan", description: "Запустить скан" },
-      { command: "ai", description: "Настроить фильтры текстом" },
-      { command: "apply", description: "Применить настройку" },
-      { command: "cancel", description: "Отменить настройку" },
-      { command: "setup", description: "Быстрая настройка" },
-      { command: "price", description: "Диапазон цены" },
-      { command: "budget", description: "Бюджет до суммы" },
-      { command: "rooms", description: "Комнаты" },
-      { command: "area", description: "Площадь" },
-      { command: "land", description: "Участок для домов" },
-      { command: "sqm", description: "Цена за м²" },
-      { command: "floor", description: "Этаж" },
-      { command: "distance", description: "Минут до центра" },
-      { command: "elevator", description: "Фильтр лифта" },
-      { command: "condition", description: "Состояние" },
-      { command: "keywords", description: "Обязательные слова" },
-      { command: "exclude", description: "Исключить слова" },
-      { command: "areas", description: "Районы" },
-      { command: "types", description: "Тип жилья" },
-      { command: "score", description: "Минимальное качество" },
-      { command: "status", description: "Статус монитора" },
+      { command: "app", description: "Каталог с фильтрами" },
+      { command: "latest", description: "Свежие варианты в чат" },
+      { command: "filters", description: "Что я сейчас ищу" },
+      { command: "status", description: "Работает ли бот" },
+      { command: "scan", description: "Проверить источники сейчас" },
       { command: "help", description: "Помощь" },
-      { command: "stop", description: "Выключить подписку" },
+      { command: "stop", description: "Выключить уведомления" },
     ],
   });
 
@@ -1291,7 +1252,7 @@ async function handleCommand(config, state, message, hooks = {}) {
       config,
       chat.id,
       ["Подписка включена.", "", tourText(config)].join("\n"),
-      { replyMarkup: commandKeyboard(), disablePreview: true }
+      { replyMarkup: commandKeyboard(config, chat), disablePreview: true }
     );
     await sendMessage(config, chat.id, shortFiltersText(config, subscriber.filters));
     await sendSavedMatches(config, state, subscriber, chat.id, {
@@ -1318,7 +1279,7 @@ async function handleCommand(config, state, message, hooks = {}) {
   }
 
   if (command === "/tour") {
-    await sendMessage(config, chat.id, tourText(config), { replyMarkup: commandKeyboard(), disablePreview: true });
+    await sendMessage(config, chat.id, tourText(config), { replyMarkup: commandKeyboard(config, chat), disablePreview: true });
     await sendMessage(config, chat.id, shortFiltersText(config, subscriber.filters));
     return true;
   }
@@ -1330,7 +1291,7 @@ async function handleCommand(config, state, message, hooks = {}) {
   }
 
   if (command === "/help") {
-    await sendMessage(config, chat.id, helpText(config, state), { replyMarkup: commandKeyboard(), disablePreview: true });
+    await sendMessage(config, chat.id, helpText(config, state), { replyMarkup: commandKeyboard(config, chat), disablePreview: true });
     return true;
   }
 

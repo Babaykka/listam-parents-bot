@@ -45,7 +45,12 @@ async function main() {
 
   await configureTelegram(config, state);
   assert.equal(state.bot.username, "test_listam_bot");
-  assert(fake.calls.some((call) => call.method === "setMyCommands"));
+  const commandsCall = fake.calls.find((call) => call.method === "setMyCommands");
+  assert(commandsCall);
+  const menuCommands = commandsCall.body.commands.map((entry) => entry.command);
+  assert(menuCommands.length <= 8, `menu must stay minimal, got ${menuCommands.length}`);
+  assert(menuCommands.includes("app"));
+  assert(!menuCommands.includes("budget"), "manual filter commands must be hidden from the menu");
 
   const parsed = listamTest.parseItem(
     {
@@ -471,6 +476,18 @@ async function main() {
   await handleTelegramUpdate(config, state, update("/start", 101));
   assert.equal(activeSubscribers(state, config).length, 1);
   assert(fake.messages.some((message) => /Что делает этот бот/.test(message.text)));
+  const startKeyboard = fake.messages.find((message) => /Что делает этот бот/.test(message.text)).reply_markup.keyboard;
+  assert.equal(startKeyboard.length, 2, "reply keyboard must be compact");
+  assert.equal(startKeyboard.flat().length, 4);
+  config.publicUrl = "https://listam-parents-bot.onrender.com";
+  const beforePrivateStart = fake.messages.length;
+  await handleTelegramUpdate(config, state, update("/tour", 101));
+  const privateKeyboard = fake.messages.slice(beforePrivateStart).find((message) => message.reply_markup?.keyboard)?.reply_markup.keyboard;
+  assert.equal(privateKeyboard[0][0].web_app.url, "https://listam-parents-bot.onrender.com/app", "private chats get a direct catalog button");
+  config.publicUrl = "";
+  // /budget still works even though it left the menu
+  await handleTelegramUpdate(config, state, update("/budget 111000", 101));
+  assert.equal(state.subscribers.find((item) => String(item.id) === "101").filters.maxPriceUsd, 111000);
 
   await handleTelegramUpdate(config, state, update("/budget 100000", 101));
   await handleTelegramUpdate(config, state, update("/rooms 2-3", 101));
