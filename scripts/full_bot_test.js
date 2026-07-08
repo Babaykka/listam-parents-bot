@@ -14,7 +14,7 @@ const { __test: estateTest } = require("../src/estate");
 const { __test: listamFeedTest } = require("../src/listamFeed");
 const { __test: listamTest } = require("../src/listam");
 const { __test: myrealtyTest } = require("../src/myrealty");
-const { createFakeTelegram, listing, telegramError, testConfig, update } = require("./test_helpers");
+const { callbackUpdate, createFakeTelegram, listing, telegramError, testConfig, update } = require("./test_helpers");
 
 async function main() {
   const fake = createFakeTelegram();
@@ -432,11 +432,55 @@ async function main() {
   const beforeLatest = fake.messages.length;
   await handleTelegramUpdate(config, state, update("/latest", 101));
   const latestMessages = fake.messages.slice(beforeLatest).map((message) => message.text).join("\n");
-  assert.match(latestMessages, /Последние подходящие варианты/);
+  assert.match(latestMessages, /Выгодные по цене за м²/, "old listings without dates fall into the value section");
   assert.match(latestMessages, /Район: Avan/);
   assert.match(latestMessages, /Параметры: 70 м² · 2 комн\./);
   assert.match(latestMessages, /Открыть объявление/);
   assert.doesNotMatch(latestMessages, /Район: Abovyan/);
+  const latestKeyboardMessage = fake.messages.at(-1);
+  assert(latestKeyboardMessage.reply_markup?.inline_keyboard?.length >= 3, "/latest must attach inline buttons");
+  assert.match(JSON.stringify(latestKeyboardMessage.reply_markup), /latest:more:/);
+
+  const freshSectionNow = new Date("2026-07-08T12:00:00.000Z");
+  const groupedSections = telegramTest.groupLatestSections(
+    config,
+    [
+      listing(910001, { publishedAt: "2026-07-08T09:00:00.000Z", discoveredAt: "2026-07-08T09:05:00.000Z" }),
+      listing(910002, { publishedAt: "2026-05-01T09:00:00.000Z", updatedAt: "2026-07-07T09:00:00.000Z", discoveredAt: "2026-05-01T09:05:00.000Z" }),
+      listing(910003, { discoveredAt: "2026-06-01T09:00:00.000Z" }),
+    ],
+    freshSectionNow
+  );
+  assert.deepEqual(
+    groupedSections.map((section) => [section.key, section.items.length]),
+    [["fresh", 1], ["raised", 1], ["value", 1]]
+  );
+
+  const beforeMoreCallback = fake.messages.length;
+  await handleTelegramUpdate(config, state, callbackUpdate("latest:more:0", 101));
+  assert(fake.calls.some((call) => call.method === "answerCallbackQuery"), "callback queries must be answered");
+  const moreMessages = fake.messages.slice(beforeMoreCallback).map((message) => message.text).join("\n");
+  assert.match(moreMessages, /Ещё варианты/);
+
+  await handleTelegramUpdate(config, state, callbackUpdate("flt:minarea:70", 101));
+  assert.equal(subscriber.filters.minAreaSqm, 70);
+  assert.match(fake.messages.at(-1).text, /Фильтр обновлён: площадь от 70 м²/);
+  subscriber.filters.minAreaSqm = null;
+
+  await handleTelegramUpdate(config, state, callbackUpdate("src:menu", 101));
+  assert.match(fake.messages.at(-1).text, /Какие источники показывать/);
+  assert.match(JSON.stringify(fake.messages.at(-1).reply_markup), /src:toggle:banali/);
+
+  await handleTelegramUpdate(config, state, callbackUpdate("src:toggle:banali", 101, { messageId: 77 }));
+  assert.deepEqual(subscriber.filters.excludeSources, ["banali"]);
+  assert(fake.calls.some((call) => call.method === "editMessageReplyMarkup" && call.body.message_id === 77));
+  const banaliItem = listing(920001, { location: "Avan", priceUsd: 90000, rooms: 2 });
+  banaliItem.source = "banali";
+  assert.equal(telegramTest.matchesSubscriber(config, subscriber, banaliItem), false, "excluded source must be filtered out");
+  assert.match(telegramTest.filtersText(config, subscriber.filters), /Скрытые источники: Banali\.am/);
+  await handleTelegramUpdate(config, state, callbackUpdate("src:toggle:banali", 101, { messageId: 77 }));
+  assert.deepEqual(subscriber.filters.excludeSources, []);
+  assert.equal(telegramTest.matchesSubscriber(config, subscriber, banaliItem), true);
 
   state.lastUserScanAt = null;
   let naturalScanCount = 0;

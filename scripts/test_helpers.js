@@ -131,6 +131,31 @@ function update(text, chatId = 1001, options = {}) {
   };
 }
 
+function callbackUpdate(data, chatId = 1001, options = {}) {
+  return {
+    update_id: options.updateId || Date.now(),
+    callback_query: {
+      id: options.callbackId || `cb-${Date.now()}`,
+      from: {
+        id: options.fromId || chatId,
+        is_bot: false,
+        first_name: options.firstName || `User${chatId}`,
+        username: options.fromUsername || `user${chatId}`,
+      },
+      message: {
+        message_id: options.messageId || 1,
+        chat: {
+          id: chatId,
+          type: options.type || "private",
+          title: options.title || "",
+          username: options.username || "",
+        },
+      },
+      data,
+    },
+  };
+}
+
 function listing(id, overrides = {}) {
   const kindKey = overrides.kindKey || "apartment";
   const location = overrides.location || "Avan";
@@ -165,6 +190,7 @@ function listing(id, overrides = {}) {
 }
 
 module.exports = {
+  callbackUpdate,
   createFakeTelegram,
   listing,
   telegramError,

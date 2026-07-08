@@ -67,6 +67,7 @@ function defaultFilters(config) {
     condition: "any",
     keywords: [],
     excludeKeywords: [],
+    excludeSources: [],
   };
 }
 
@@ -103,6 +104,7 @@ function normalizeFilters(config, filters = {}) {
     condition: ["ready", "needs_work", "any"].includes(filters.condition) ? filters.condition : "any",
     keywords: listOrEmpty(filters.keywords),
     excludeKeywords: listOrEmpty(filters.excludeKeywords),
+    excludeSources: listOrEmpty(filters.excludeSources),
   };
 }
 

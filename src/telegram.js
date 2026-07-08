@@ -1,6 +1,8 @@
 const { activeSubscribers, deactivateSubscriber, defaultFilters, normalizeFilters, upsertSubscriber, writeState } = require("./state");
 const { parseFilterRequest } = require("./aiFilters");
-const { compareListingActivity, shouldNotifyListing } = require("./listingFreshness");
+const { listingSourceKey } = require("./dedupe");
+const { compareListingActivity, daysSince, shouldNotifyListing } = require("./listingFreshness");
+const { sourceStatusEntries } = require("./sourceHealth");
 const { clamp, escapeHtml, normalizeText, sleep } = require("./utils");
 
 const YEREVAN_DATE_FORMATTER = new Intl.DateTimeFormat("ru-RU", {
@@ -168,6 +170,17 @@ function categoryLabel(value) {
   );
 }
 
+const TOGGLE_SOURCES = [
+  ["listam", "List.am"],
+  ["banali", "Banali.am"],
+  ["myrealty", "MyRealty"],
+  ["estate", "Estate.am"],
+];
+
+function toggleSourceLabel(source) {
+  return TOGGLE_SOURCES.find(([key]) => key === source)?.[1] || source;
+}
+
 function listingUrl(item) {
   const rawUrl = String(item.url || "");
   if (rawUrl && !/https?:\/\/(?:www\.)?list\.am\//i.test(rawUrl)) return rawUrl;
@@ -274,6 +287,35 @@ function chunkListings(title, listings, config) {
   return chunks;
 }
 
+function pluralRu(count, forms) {
+  const abs = Math.abs(count) % 100;
+  const last = abs % 10;
+  if (abs > 10 && abs < 20) return forms[2];
+  if (last === 1) return forms[0];
+  if (last >= 2 && last <= 4) return forms[1];
+  return forms[2];
+}
+
+function listingsCountText(count) {
+  return `${count} ${pluralRu(count, ["объявление", "объявления", "объявлений"])}`;
+}
+
+function relativeTimeText(value, now = Date.now()) {
+  const time = Date.parse(value || "");
+  if (!Number.isFinite(time)) return "";
+  const diffMinutes = Math.round((now - time) / 60000);
+  if (Math.abs(diffMinutes) < 1) return "только что";
+  if (diffMinutes > 0) {
+    if (diffMinutes < 60) return `${diffMinutes} мин назад`;
+    const hours = Math.round(diffMinutes / 60);
+    if (hours < 48) return `${hours} ч назад`;
+    return `${Math.round(hours / 24)} дн назад`;
+  }
+  const ahead = -diffMinutes;
+  if (ahead < 60) return `через ~${ahead} мин`;
+  return `через ~${Math.round(ahead / 60)} ч`;
+}
+
 function rangeText(min, max, unit = "", anyText = "любой") {
   if (min && max) return min === max ? `${min}${unit}` : `${min}-${max}${unit}`;
   if (min) return `от ${min}${unit}`;
@@ -310,6 +352,7 @@ function filtersText(config, rawFilters) {
   if (filters.minQualityScore > config.minQualityScore) rows.push(`Мин. качество: ${filters.minQualityScore}/10`);
   if (filters.keywords.length) rows.push(`Ключевые слова: ${escapeHtml(keywords)}`);
   if (filters.excludeKeywords.length) rows.push(`Исключить слова: ${escapeHtml(excludeKeywords)}`);
+  if (filters.excludeSources?.length) rows.push(`Скрытые источники: ${escapeHtml(filters.excludeSources.map(toggleSourceLabel).join(", "))}`);
 
   if (rows.length === 4) rows.push("Остальное: без ограничений");
   return rows.join("\n");
@@ -341,20 +384,50 @@ function matchesSubscriber(config, subscriber, item) {
   if (filters.condition === "ready" && !["ready", "partial"].includes(item.condition)) return false;
   if (filters.condition === "needs_work" && item.condition !== "needs_work") return false;
 
+  if (filters.excludeSources?.length && filters.excludeSources.includes(listingSourceKey(item))) return false;
+
   const text = haystack(item);
   if (filters.keywords.length && !filters.keywords.every((keyword) => text.includes(keyword.toLowerCase()))) return false;
   if (filters.excludeKeywords.length && filters.excludeKeywords.some((keyword) => text.includes(keyword.toLowerCase()))) return false;
   return true;
 }
 
-function matchingListings(config, subscriber, listings, limit = 10, mode = "latest") {
+function filteredSortedListings(config, subscriber, listings, mode = "latest") {
   const filtered = (listings || []).filter((item) => !item.duplicateOf && matchesSubscriber(config, subscriber, item));
   if (mode === "top") {
     filtered.sort((a, b) => rankScoreOf(b) - rankScoreOf(a) || a.priceUsd - b.priceUsd);
   } else {
     filtered.sort(compareListingActivity);
   }
-  return filtered.slice(0, limit);
+  return filtered;
+}
+
+function matchingListings(config, subscriber, listings, limit = 10, mode = "latest") {
+  return filteredSortedListings(config, subscriber, listings, mode).slice(0, limit);
+}
+
+function matchingListingsPage(config, subscriber, listings, offset, limit, mode = "latest") {
+  const filtered = filteredSortedListings(config, subscriber, listings, mode);
+  return { items: filtered.slice(offset, offset + limit), total: filtered.length };
+}
+
+function groupLatestSections(config, listings, now = new Date()) {
+  const fresh = [];
+  const raised = [];
+  const rest = [];
+  for (const item of listings) {
+    const publishedDays = daysSince(item.publishedAt, now);
+    const updatedDays = daysSince(item.updatedAt, now);
+    if (publishedDays !== null && publishedDays >= 0 && publishedDays <= 3) fresh.push(item);
+    else if (updatedDays !== null && updatedDays >= 0 && updatedDays <= 3) raised.push(item);
+    else rest.push(item);
+  }
+  const value = rest.slice().sort((a, b) => rankScoreOf(b) - rankScoreOf(a)).slice(0, 4);
+  return [
+    { key: "fresh", title: "Свежие объявления", items: fresh.slice(0, 8) },
+    { key: "raised", title: "Недавно поднятые", items: raised.slice(0, 6) },
+    { key: "value", title: "Выгодные по цене за м²", items: value },
+  ].filter((section) => section.items.length > 0);
 }
 
 function naturalListingRequest(text) {
@@ -561,6 +634,161 @@ function shortFiltersText(config, rawFilters) {
     `Хочешь изменить - просто напиши обычным текстом, например:`,
     `<i>дом до 120к, до 30 минут от центра, без агентств</i>`,
   ].join("\n");
+}
+
+function sourceStatusLine(entry) {
+  if (entry.degraded) {
+    const error = entry.lastError ? ` (${entry.lastError})` : "";
+    return `⚠️ ${entry.label} — временно недоступен${error}, бот пробует снова автоматически`;
+  }
+  if (entry.blocked) {
+    return `⚠️ ${entry.label} — сайт показывает проверку браузера, бот пробует снова автоматически`;
+  }
+  if (entry.lastError) {
+    return `⚠️ ${entry.label} — ошибка: ${entry.lastError}`;
+  }
+  const duration = entry.durationMs ? ` за ${Math.max(1, Math.round(entry.durationMs / 1000))}с` : "";
+  return `✅ ${entry.label} — ${listingsCountText(entry.listings)}${duration}`;
+}
+
+function statusText(config, state) {
+  const activeCount = activeSubscribers(state, config).length;
+  const blockedStreak = Number(state.scanHealth?.blockedStreak || 0);
+  const entries = sourceStatusEntries(state);
+
+  const lines = ["Бот работает и следит за объявлениями."];
+  if (state.lastScan) {
+    const when = relativeTimeText(state.lastScan.at);
+    const summary = state.lastScan.error
+      ? `закончилась ошибкой: ${state.lastScan.error}`
+      : `нашла ${listingsCountText(Number(state.lastScan.scanned || 0))}, новых для рассылки: ${Number(state.lastScan.new || 0)}`;
+    lines.push(`Последняя проверка ${when ? `${when} ` : ""}${summary}.`);
+  } else {
+    lines.push("Первая проверка ещё не выполнялась.");
+  }
+  const nextWhen = relativeTimeText(state.nextScanAt);
+  lines.push(`Проверяю источники каждые ${config.scanIntervalMinutes} мин${nextWhen ? `, следующая ${nextWhen}` : ""}.`);
+
+  if (entries.length > 0) {
+    lines.push("", "Источники:");
+    for (const entry of entries) lines.push(sourceStatusLine(entry));
+  } else if (blockedStreak > 0) {
+    lines.push("", "List.am сейчас показывает проверку браузера. Другие источники бот проверяет параллельно.");
+  }
+
+  lines.push("", `Подписчиков: ${activeCount}.`, "Твои фильтры: /filters · Свежие варианты: /latest");
+  return lines.map((line) => escapeHtml(line)).join("\n");
+}
+
+function latestKeyboard(offset) {
+  return {
+    inline_keyboard: [
+      [{ text: "Показать ещё", callback_data: `latest:more:${offset}` }],
+      [
+        { text: "Только дома", callback_data: "latest:houses" },
+        { text: "Только квартиры", callback_data: "latest:apartments" },
+      ],
+      [
+        { text: "От 70 м²", callback_data: "flt:minarea:70" },
+        { text: "Источники", callback_data: "src:menu" },
+      ],
+    ],
+  };
+}
+
+function sourcesKeyboard(subscriber) {
+  const excluded = new Set(subscriber.filters?.excludeSources || []);
+  return {
+    inline_keyboard: TOGGLE_SOURCES.map(([key, label]) => [
+      { text: `${excluded.has(key) ? "🚫" : "✅"} ${label}`, callback_data: `src:toggle:${key}` },
+    ]),
+  };
+}
+
+async function sendListingsPageWithMore(config, state, subscriber, chatId, offset) {
+  const { items, total } = matchingListingsPage(config, subscriber, state.listings || [], offset, 8, "latest");
+  if (items.length === 0) return false;
+
+  const chunks = chunkListings("Ещё варианты", items, config);
+  const nextOffset = offset + items.length;
+  for (let index = 0; index < chunks.length; index += 1) {
+    const isLast = index === chunks.length - 1;
+    const options = isLast && nextOffset < total ? { replyMarkup: latestKeyboard(nextOffset) } : {};
+    await sendMessage(config, chatId, chunks[index], options);
+  }
+  return true;
+}
+
+async function handleCallbackQuery(config, state, callbackQuery, hooks = {}) {
+  const data = String(callbackQuery.data || "");
+  const chat = callbackQuery.message?.chat;
+  const answer = (text) =>
+    telegramApi(config, "answerCallbackQuery", { callback_query_id: callbackQuery.id, ...(text ? { text } : {}) }).catch((error) =>
+      console.warn(`[telegram] answerCallbackQuery failed: ${error.message}`)
+    );
+  if (!chat) {
+    await answer();
+    return true;
+  }
+
+  const subscriber = upsertSubscriber(config, state, chat, callbackQuery.from);
+  subscriber.filters = normalizeFilters(config, subscriber.filters);
+
+  if (data.startsWith("latest:more:")) {
+    const offset = Math.max(0, Math.round(Number(data.split(":")[2]) || 0));
+    const sent = await sendListingsPageWithMore(config, state, subscriber, chat.id, offset);
+    await answer(sent ? undefined : "Больше подходящих вариантов пока нет");
+    return true;
+  }
+
+  if (data === "latest:houses" || data === "latest:apartments") {
+    const categoryKey = data === "latest:houses" ? "house" : "apartment";
+    const scoped = scopedSubscriberForCategories(config, subscriber, [categoryKey]);
+    const sent = await sendSavedMatches(config, state, scoped, chat.id, {
+      limit: 8,
+      title: categoryKey === "house" ? "Последние дома по фильтрам" : "Последние квартиры по фильтрам",
+    });
+    await answer(sent ? undefined : "Пока нет таких вариантов");
+    return true;
+  }
+
+  if (data === "flt:minarea:70") {
+    subscriber.filters.minAreaSqm = 70;
+    await answer("Теперь показываю только от 70 м²");
+    await sendMessage(config, chat.id, `Фильтр обновлён: площадь от 70 м².\n\n${filtersText(config, subscriber.filters)}`);
+    return true;
+  }
+
+  if (data === "src:menu") {
+    await answer();
+    await sendMessage(config, chat.id, "Какие источники показывать? Нажми, чтобы скрыть или вернуть:", {
+      replyMarkup: sourcesKeyboard(subscriber),
+    });
+    return true;
+  }
+
+  if (data.startsWith("src:toggle:")) {
+    const source = data.split(":")[2];
+    if (!TOGGLE_SOURCES.some(([key]) => key === source)) {
+      await answer();
+      return true;
+    }
+    const excluded = new Set(subscriber.filters.excludeSources || []);
+    const nowExcluded = !excluded.has(source);
+    if (nowExcluded) excluded.add(source);
+    else excluded.delete(source);
+    subscriber.filters.excludeSources = Array.from(excluded);
+    await answer(nowExcluded ? `${toggleSourceLabel(source)} скрыт` : `${toggleSourceLabel(source)} снова показывается`);
+    await telegramApi(config, "editMessageReplyMarkup", {
+      chat_id: chat.id,
+      message_id: callbackQuery.message.message_id,
+      reply_markup: sourcesKeyboard(subscriber),
+    }).catch((error) => console.warn(`[telegram] editMessageReplyMarkup failed: ${error.message}`));
+    return true;
+  }
+
+  await answer();
+  return true;
 }
 
 function commandKeyboard() {
@@ -994,7 +1222,7 @@ async function configureTelegram(config, state) {
     await telegramApi(config, "setWebhook", {
       url: `${config.publicUrl}/telegram/webhook`,
       secret_token: config.telegramWebhookSecret,
-      allowed_updates: ["message"],
+      allowed_updates: ["message", "callback_query"],
       drop_pending_updates: false,
     });
     console.log(`[telegram] webhook set: ${config.publicUrl}/telegram/webhook`);
@@ -1273,7 +1501,27 @@ async function handleCommand(config, state, message, hooks = {}) {
     return true;
   }
 
-  if (command === "/latest" || command === "/top" || command === "/houses" || command === "/apartments") {
+  if (command === "/latest") {
+    const matched = matchingListings(config, subscriber, state.listings || [], 40, "latest");
+    if (matched.length === 0) {
+      await sendMessage(config, chat.id, "Пока нет сохраненных объявлений под эти фильтры. Можно подождать следующий успешный скан или расширить фильтры через /filters.");
+      return true;
+    }
+    const sections = groupLatestSections(config, matched);
+    const chunks = [];
+    let shown = 0;
+    for (const section of sections) {
+      chunks.push(...chunkListings(section.title, section.items, config));
+      shown += section.items.length;
+    }
+    for (let index = 0; index < chunks.length; index += 1) {
+      const isLast = index === chunks.length - 1;
+      await sendMessage(config, chat.id, chunks[index], isLast ? { replyMarkup: latestKeyboard(shown) } : {});
+    }
+    return true;
+  }
+
+  if (command === "/top" || command === "/houses" || command === "/apartments") {
     const limit = clamp(Math.round(parseNumberArg(args, 8)), 1, 20);
     const mode = command === "/top" ? "top" : "latest";
     const scopedSubscriber = scopedSubscriberForCategories(
@@ -1291,9 +1539,7 @@ async function handleCommand(config, state, message, hooks = {}) {
         ? "Лучшие варианты"
         : command === "/houses"
           ? "Последние дома по фильтрам"
-          : command === "/apartments"
-            ? "Последние квартиры по фильтрам"
-            : "Последние подходящие варианты";
+          : "Последние квартиры по фильтрам";
     for (const chunk of chunkListings(title, listings, config)) {
       await sendMessage(config, chat.id, chunk);
     }
@@ -1301,71 +1547,7 @@ async function handleCommand(config, state, message, hooks = {}) {
   }
 
   if (command === "/status") {
-    const activeCount = activeSubscribers(state, config).length;
-    const blockedStreak = Number(state.scanHealth?.blockedStreak || 0);
-    const currentDelayMinutes =
-      blockedStreak > 0
-        ? Math.min(config.blockedScanMaxIntervalMinutes, Math.max(config.blockedScanIntervalMinutes, config.blockedScanIntervalMinutes * blockedStreak))
-        : config.scanIntervalMinutes;
-    const lastScan = state.lastScan
-      ? `${state.lastScan.at}: найдено ${state.lastScan.scanned}, новых ${state.lastScan.new}, пропущено страниц ${state.lastScan.skipped || 0}${
-          state.lastScan.error ? `, ошибка: ${state.lastScan.error}` : ""
-        }`
-      : "скана еще не было";
-    const nextScan = state.nextScanAt ? state.nextScanAt : "планируется";
-    const lastUserScan = state.lastUserScanAt ? `Последний ручной запуск: ${state.lastUserScanAt}` : null;
-    const expectedPages = config.categories.length * config.scanPagesPerCategory;
-    const listamSource = state.lastScan?.sources?.find((source) => source.source === "listam");
-    const myrealtySource = state.lastScan?.sources?.find((source) => source.source === "myrealty");
-    const estateSource = state.lastScan?.sources?.find((source) => source.source === "estate");
-    const sourceNames = { listam: "List.am", listam_feed: "List.am feed", myrealty: "MyRealty", estate: "Estate.am", banali: "Banali.am" };
-    const sourcesLine = state.lastScan?.sources?.length
-      ? `Источники: ${state.lastScan.sources
-          .map((source) => {
-            const label = sourceNames[source.source] || source.source;
-            const details = [];
-            if (source.blocked) details.push("проверка браузера");
-            if (source.error) details.push("ошибка");
-            if (source.probeMode === "quick") details.push("быстрая проверка");
-            if (source.durationMs) details.push(`${Math.round(source.durationMs / 1000)}с`);
-            const suffix = details.length ? ` (${details.join(", ")})` : "";
-            return `${label}: ${source.listings}${suffix}`;
-          })
-          .join(", ")}`
-      : null;
-    const lastScanLooksBlocked =
-      state.lastScan?.blocked ||
-      (state.lastScan && !state.lastScan.error && Number(state.lastScan.scanned || 0) === 0 && Number(state.lastScan.skipped || 0) >= expectedPages);
-    const banaliSource = state.lastScan?.sources?.find((source) => source.source === "banali");
-    const fallbackFound = Number(myrealtySource?.listings || 0) + Number(estateSource?.listings || 0) + Number(banaliSource?.listings || 0);
-    let scannerLine = "Источники отвечают нормально.";
-    if (listamSource?.blocked && fallbackFound > 0) {
-      scannerLine = `List.am сейчас показывает проверку браузера, но другие источники работают: в последнем скане найдено ${fallbackFound}.`;
-    } else if (blockedStreak) {
-      scannerLine = "Один из источников сейчас показывает проверку браузера. Новые объявления могут задержаться, но бот попробует снова автоматически.";
-    } else if (lastScanLooksBlocked) {
-      scannerLine = "Последняя проверка не получила объявления. Похоже, один из источников показал проверку браузера.";
-    }
-    const scheduleLine = blockedStreak
-      ? `Следующая попытка примерно через ${currentDelayMinutes} мин. Когда сайт снова откроется, вернусь к проверке каждые ${config.scanIntervalMinutes} мин.`
-      : `Проверяю объявления примерно каждые ${config.scanIntervalMinutes} мин.`;
-    await sendMessage(
-      config,
-      chat.id,
-      [
-        `Бот работает.`,
-        `Telegram: доставка до этого чата работает.`,
-        `Подписчиков: ${activeCount}`,
-        scannerLine,
-        sourcesLine,
-        scheduleLine,
-        `Последний скан: ${escapeHtml(lastScan)}`,
-        lastUserScan,
-        `Следующий скан: ${escapeHtml(nextScan)}`,
-      ]
-        .filter(Boolean)
-        .join("\n")
-    );
+    await sendMessage(config, chat.id, statusText(config, state));
     return true;
   }
 
@@ -1388,6 +1570,7 @@ async function handleCommand(config, state, message, hooks = {}) {
 }
 
 async function handleTelegramUpdate(config, state, update, hooks = {}) {
+  if (update.callback_query) return handleCallbackQuery(config, state, update.callback_query, hooks);
   const message = update.message;
   if (!message?.chat || !message.text) return false;
   return handleCommand(config, state, message, hooks);
@@ -1397,7 +1580,7 @@ async function pollTelegramOnce(config, state, hooks = {}) {
   const updates = await telegramApi(config, "getUpdates", {
     offset: Number(state.telegramUpdateOffset || 0) + 1,
     timeout: 0,
-    allowed_updates: ["message"],
+    allowed_updates: ["message", "callback_query"],
   });
 
   for (const update of updates) {
@@ -1469,6 +1652,7 @@ module.exports = {
   __test: {
     chunkListings,
     filtersText,
+    groupLatestSections,
     listingLine,
     listingUrl,
     listingDateDetail,
@@ -1477,6 +1661,8 @@ module.exports = {
     parseAreas,
     parseRangeArg,
     parseTypes,
+    relativeTimeText,
     shouldNotifyListing,
+    statusText,
   },
 };
