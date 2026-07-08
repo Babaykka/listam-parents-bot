@@ -314,6 +314,7 @@ function parseItem(raw, category, config) {
     kindKey: category.key,
     title: cleanTitle(text, price, config),
     url: `https://www.list.am/item/${id}`,
+    imageUrl: /^https?:\/\//i.test(String(raw.imageUrl || "")) ? String(raw.imageUrl).replace(/^http:/i, "https:") : null,
     priceLabel: price.label,
     priceUsd: price.usd,
     areaSqm: area,
@@ -357,7 +358,11 @@ async function waitForListings(page, config) {
 async function extractPageItems(page) {
   return page.$$eval("a[href*='/item/']", (links) =>
     links
-      .map((a) => ({ href: a.href, text: a.innerText.replace(/\s+/g, " ").trim() }))
+      .map((a) => {
+        const img = a.querySelector("img");
+        const imageUrl = (img && (img.currentSrc || img.src || img.getAttribute("data-src") || img.getAttribute("data-original"))) || "";
+        return { href: a.href, text: a.innerText.replace(/\s+/g, " ").trim(), imageUrl };
+      })
       .filter((item) => item.text && /(\$|֏|€)/.test(item.text))
   );
 }

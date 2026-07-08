@@ -65,6 +65,13 @@ function tagText(block, tag) {
   return match ? stripHtml(match[1]) : "";
 }
 
+function entryImageUrl(entry) {
+  const contentRaw = String(entry || "").match(/<content\b[^>]*>([\s\S]*?)<\/content>/i)?.[1] || "";
+  const src = decodeHtml(unCdata(contentRaw)).match(/<img[^>]+src=["']([^"']+)["']/i)?.[1] || "";
+  const absolute = absoluteUrl(src);
+  return /^https:\/\//i.test(absolute) ? absolute : null;
+}
+
 function entryBlocks(xml) {
   const entries = [];
   const regex = /<entry\b[^>]*>([\s\S]*?)<\/entry>/gi;
@@ -241,6 +248,7 @@ function parseEntry(entry, config) {
     kindKey,
     title: normalizeText(title || summary),
     url,
+    imageUrl: entryImageUrl(entry),
     priceLabel: price.priceLabel,
     priceUsd: price.priceUsd,
     areaSqm,

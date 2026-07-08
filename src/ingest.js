@@ -44,6 +44,7 @@ function sanitizeIngestListing(raw, config) {
   const areaSqm = cleanNumber(raw.areaSqm, 5, 10000);
   const publishedAt = cleanIsoDate(raw.publishedAt);
   const updatedAt = cleanIsoDate(raw.updatedAt);
+  const imageUrl = cleanString(raw.imageUrl, 300);
 
   return {
     id,
@@ -53,6 +54,7 @@ function sanitizeIngestListing(raw, config) {
     kindKey,
     title: cleanString(raw.title, 200),
     url,
+    imageUrl: /^https:\/\/[\w.-]+\//i.test(imageUrl) ? imageUrl : null,
     priceLabel: cleanString(raw.priceLabel, 60) || `$${Math.round(priceUsd).toLocaleString("en-US")}`,
     priceUsd: Math.round(priceUsd),
     areaSqm,

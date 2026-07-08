@@ -71,6 +71,14 @@ function absoluteUrl(post) {
   return `${BASE_URL}/en/${String(slug).replace(/^\/+/, "")}`;
 }
 
+function imageUrl(post) {
+  const raw = String(post?.image || "").trim();
+  if (!raw) return null;
+  if (/^https:\/\//i.test(raw)) return raw;
+  if (raw.startsWith("/")) return `${BASE_URL}${raw}`;
+  return null;
+}
+
 function priceBucketsForConfig(config) {
   const min = Number(config.minPriceUsd || 0);
   const max = Number(config.maxPriceUsd || 150000);
@@ -211,6 +219,7 @@ function parsePost(post, config) {
     kindKey,
     title: normalizeText(`${rooms ? `${rooms} room ` : ""}${kindKey === "house" ? "house" : "apartment"}${areaSqm ? `, ${areaSqm} sq.m.` : ""} · ${location || post.district || post.address || publicCode}`),
     url,
+    imageUrl: imageUrl(post),
     priceLabel: price.priceLabel,
     priceUsd: price.priceUsd,
     areaSqm,

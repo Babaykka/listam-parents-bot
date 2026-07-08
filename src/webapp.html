@@ -97,8 +97,19 @@
   a.card {
     display: block; text-decoration: none; color: inherit;
     background: var(--card); border: 1px solid var(--line);
-    border-radius: 14px; padding: 13px 14px;
+    border-radius: 14px; padding: 13px 14px; overflow: hidden;
   }
+  .ph {
+    margin: -13px -14px 11px; aspect-ratio: 16 / 9;
+    background: var(--chip); position: relative;
+  }
+  .ph img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .fresh {
+    font-size: 11px; font-weight: 600; color: var(--why);
+    background: var(--why-bg); border-radius: 999px; padding: 2px 8px;
+    vertical-align: 3px; margin-left: 6px; white-space: nowrap;
+  }
+  .ph .fresh { position: absolute; top: 8px; left: 8px; margin: 0; vertical-align: baseline; }
   .row1 { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
   .price { font-size: 19px; font-weight: 700; letter-spacing: -0.02em; }
   .sqm { color: var(--text-2); font-size: 13px; white-space: nowrap; }
@@ -217,6 +228,13 @@
     return arr; // server already sends fresh-first
   }
 
+  function isFresh(item) {
+    var t = Date.parse(item.publishedAt || 0);
+    var u = Date.parse(item.updatedAt || 0);
+    var day = 24 * 3600000;
+    return (isFinite(t) && Date.now() - t < day) || (isFinite(u) && Date.now() - u < day);
+  }
+
   function card(item) {
     var title = [
       item.rooms ? item.rooms + " комн." : null,
@@ -234,8 +252,13 @@
     var src = esc(item.sourceLabel || "");
     if (item.alsoSources && item.alsoSources.length) src += " +" + item.alsoSources.length;
 
+    var freshBadge = isFresh(item) ? '<span class="fresh">новое</span>' : "";
+    var photo = item.imageUrl
+      ? '<div class="ph"><img loading="lazy" src="' + esc(item.imageUrl) + '" alt="">' + freshBadge + "</div>"
+      : "";
     return '<a class="card" href="' + esc(item.url) + '" target="_blank" rel="noopener">'
-      + '<div class="row1"><span class="price">' + esc(item.kind) + " · " + money(item.priceUsd) + "</span>"
+      + photo
+      + '<div class="row1"><span class="price">' + esc(item.kind) + " · " + money(item.priceUsd) + (photo ? "" : freshBadge) + "</span>"
       + (item.pricePerSqm ? '<span class="sqm">' + money(item.pricePerSqm) + "/м²</span>" : "")
       + "</div>"
       + (title ? '<div class="row2">' + esc(title) + "</div>" : "")
@@ -250,6 +273,9 @@
     if (reset) shown = 0;
     shown = Math.min(items.length, shown + PAGE);
     $("cards").innerHTML = items.slice(0, shown).map(card).join("") || "";
+    $("cards").querySelectorAll(".ph img").forEach(function (img) {
+      img.addEventListener("error", function () { img.parentNode.remove(); }, { once: true });
+    });
     $("more").hidden = shown >= items.length;
     $("note").hidden = items.length > 0;
     if (items.length === 0) $("note").textContent = "Под эти фильтры пока ничего нет. Попробуй убрать часть фильтров.";

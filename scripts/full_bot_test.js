@@ -56,6 +56,7 @@ async function main() {
     {
       href: "https://www.list.am/item/987654",
       text: "$95,000 2 room apartment, 70 sq.m., 2/9 floor Elevator Available major renovation Avan, Yerevan Posted Today 14:30",
+      imageUrl: "http://s.list.am/f/123/12345678.webp",
     },
     config.categories.find((category) => category.key === "apartment"),
     config
@@ -70,6 +71,7 @@ async function main() {
   assert.equal(parsed.url, "https://www.list.am/item/987654");
   assert(parsed.publishedAt, "publishedAt should be parsed from listing text");
   assert.equal(parsed.publishedAtPrecision, "datetime");
+  assert.equal(parsed.imageUrl, "https://s.list.am/f/123/12345678.webp", "thumbnail must be kept and upgraded to https");
   const publishedWithTime = listamTest.parsePublishedDate("Posted Today 14:30", new Date("2026-06-20T08:00:00.000Z"));
   assert.deepEqual(publishedWithTime, { iso: "2026-06-20T10:30:00.000Z", precision: "datetime" });
   const publishedDateOnly = listamTest.parsePublishedDate("Posted 20 Jun 2026", new Date("2026-06-20T08:00:00.000Z"));
@@ -115,10 +117,21 @@ async function main() {
   assert.equal(feedXmlItems[0].kindKey, "house");
   assert.equal(feedXmlItems[0].location, "Abovyan");
 
+  const myrealtyBlocks = myrealtyTest.cardBlocks(`
+    <a href="https://myrealty.am/en/x/160778" target="_blank" class="image"><div class="thumb-image">
+      <img src="https://myrealty.am/site/assets/images/no-img.jpg" class="no-img" alt="">
+      <img data-src="https://myrealty.am/images/a5/73/photo_600x460.jpeg" class="thumb-img" alt="x">
+    </div></a>
+    <figcaption class="figure-caption d-flex flex-column">card body</figcaption>
+  `);
+  assert.equal(myrealtyBlocks.length, 1);
+  assert.equal(myrealtyBlocks[0].imageUrl, "https://myrealty.am/images/a5/73/photo_600x460.jpeg");
+
   const myrealtyCard = myrealtyTest.parseCard(
     {
       href: "https://myrealty.am/en/3-bedroom/apartment-for-sale/Droi+St/Kanaqer-Zeytun/Yerevan/160778",
       idFromHref: "160778",
+      imageUrl: "https://myrealty.am/images/a5/73/photo_600x460.jpeg",
       html: `
         <div class="item-list-id"><span>ID 160778</span></div>
         <div class="item-type show-on-list"><span>FOR SALE</span></div>
@@ -139,6 +152,7 @@ async function main() {
   assert.equal(myrealtyCard.sourceLabel, "MyRealty");
   assert.equal(myrealtyCard.location, "Kanaker-Zeytun");
   assert.equal(myrealtyCard.priceUsd, 128000);
+  assert.equal(myrealtyCard.imageUrl, "https://myrealty.am/images/a5/73/photo_600x460.jpeg");
   assert(myrealtyCard.publishedAt, "MyRealty Added in date should be parsed");
   assert(myrealtyCard.updatedAt, "MyRealty Edited in date should be parsed");
   assert.equal(telegramTest.listingUrl(myrealtyCard), "https://myrealty.am/en/3-bedroom/apartment-for-sale/Droi+St/Kanaqer-Zeytun/Yerevan/160778");
@@ -177,7 +191,7 @@ async function main() {
       <updated>2026-07-01T10:15:00+04:00</updated>
       <link rel="alternate" href="http://www.estate.am/en/3-rooms-apartment-sale-in-zovuni-d122999"/>
       <summary><![CDATA[Zovuni, 72 m2, floor 3/9, 3 room, 46,800,000 Դ]]></summary>
-      <content type="html"><![CDATA[The apartment has been completely renovated. The building is equipped with an elevator.]]></content>
+      <content type="html"><![CDATA[<img src="/media/cache/photo/uploads/1.jpg" alt=""/> The apartment has been completely renovated. The building is equipped with an elevator.]]></content>
     `,
     config
   );
@@ -190,6 +204,7 @@ async function main() {
   assert.equal(estateCard.floor.label, "3/9");
   assert.equal(estateCard.condition, "ready");
   assert.equal(estateCard.elevator, true);
+  assert.equal(estateCard.imageUrl, "https://www.estate.am/media/cache/photo/uploads/1.jpg");
   assert.equal(telegramTest.listingUrl(estateCard), "https://www.estate.am/en/3-rooms-apartment-sale-in-zovuni-d122999");
   assert.match(telegramTest.listingLine(estateCard), /Estate\.am/);
   assert.match(telegramTest.listingDateDetail(estateCard), /обновлено 01\.07\.2026/);
@@ -212,6 +227,7 @@ async function main() {
       area: ["81"],
       heating: [["heating_central"]],
       structureType: "new_building",
+      image: "/storage/entity_media/84281b43/16945224181.jpg",
       slug: { en: "sell/house/3-rooms/Yerevan/Arabkir/-H47316" },
     },
     config
@@ -223,6 +239,7 @@ async function main() {
   assert.equal(banaliHouse.areaSqm, 81);
   assert.equal(banaliHouse.rooms, 3);
   assert.equal(banaliHouse.floor, null);
+  assert.equal(banaliHouse.imageUrl, "https://banali.am/storage/entity_media/84281b43/16945224181.jpg");
   assert.equal(telegramTest.listingUrl(banaliHouse), "https://banali.am/en/sell/house/3-rooms/Yerevan/Arabkir/-H47316");
   assert.match(telegramTest.listingLine(banaliHouse), /Banali\.am/);
   assert.match(
@@ -391,6 +408,7 @@ async function main() {
           publishedAtPrecision: "datetime",
           rawText: "renovated elevator",
           qualityScore: 7,
+          imageUrl: "https://s.list.am/f/123/12345678.webp",
           injected: "<script>alert(1)</script>",
         },
         { id: "bad-price", kindKey: "apartment", priceUsd: 10, url: "https://www.list.am/item/2" },
@@ -408,6 +426,15 @@ async function main() {
   assert.equal(ingestResult.listings[0].minutesToCenter, 20);
   assert.equal(ingestResult.listings[0].injected, undefined, "unknown fields must be stripped");
   assert.equal(ingestResult.listings[0].pricePerSqm, Math.round(95000 / 70));
+  assert.equal(ingestResult.listings[0].imageUrl, "https://s.list.am/f/123/12345678.webp");
+  assert.equal(
+    sanitizeIngestPayload(
+      { source: "listam", listings: [{ id: "9", kindKey: "apartment", priceUsd: 90000, url: "https://www.list.am/item/9", location: "Avan", imageUrl: "http://insecure.example/1.jpg" }] },
+      config
+    ).listings[0].imageUrl,
+    null,
+    "non-https images must be dropped"
+  );
   assert.match(sanitizeIngestPayload({ source: "evil", listings: [] }, config).error, /unknown source/);
   assert.match(sanitizeIngestPayload({ source: "listam", listings: "no" }, config).error, /array/);
 
@@ -464,14 +491,16 @@ async function main() {
   assert(apartmentsOnly.listings.every((item) => item.kindKey === "apartment" && item.areaSqm >= 70 && item.priceUsd <= 100000));
   assert.equal(apartmentsOnly.listings[0].id, "r1", "value sort must put the bargain first");
   assert.equal(listingsApiPayload(apiState, config, { limit: 2 }, rankingNow).listings.length, 2);
-  const apiView = publicListingView({ ...banaliOriginal, rawText: "secret raw", floor: { current: 2, total: 9, label: "2/9" } });
+  const apiView = publicListingView({ ...banaliOriginal, rawText: "secret raw", imageUrl: "https://banali.am/storage/x.jpg", floor: { current: 2, total: 9, label: "2/9" } });
   assert.equal(apiView.rawText, undefined);
   assert.equal(apiView.floorLabel, "2/9");
   assert.equal(apiView.sourceLabel, "Banali.am");
+  assert.equal(apiView.imageUrl, "https://banali.am/storage/x.jpg");
 
   const webappHtml = fs.readFileSync(path.join(__dirname, "..", "src", "webapp.html"), "utf8");
   assert.match(webappHtml, /api\/listings/);
   assert.match(webappHtml, /telegram-web-app\.js/);
+  assert.match(webappHtml, /loading="lazy"/, "listing photos must lazy-load");
 
   await handleTelegramUpdate(config, state, update("/start", 101));
   assert.equal(activeSubscribers(state, config).length, 1);

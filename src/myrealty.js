@@ -95,7 +95,8 @@ function cardBlocks(html) {
     const before = html.slice(Math.max(0, match.index - 5000), match.index);
     const hrefMatch = before.match(/<a href="([^"]+\/(\d+))"[^>]*class="image"/);
     if (!hrefMatch) continue;
-    blocks.push({ href: hrefMatch[1], idFromHref: hrefMatch[2], html: match[1] });
+    const imageMatch = before.slice(hrefMatch.index).match(/data-src="(https:\/\/[^"]+)"/);
+    blocks.push({ href: hrefMatch[1], idFromHref: hrefMatch[2], imageUrl: imageMatch ? decodeHtml(imageMatch[1]) : null, html: match[1] });
   }
   return blocks;
 }
@@ -147,6 +148,7 @@ function parseCard(card, config) {
     kindKey,
     title: normalizeText(`${rooms ? `${rooms} room ` : ""}${kindKey === "house" ? "house" : "apartment"}${areaSqm ? `, ${areaSqm} sq.m.` : ""} · ${address}`),
     url: card.href.startsWith("http") ? card.href : `${BASE_URL}${card.href}`,
+    imageUrl: card.imageUrl && /^https:\/\//i.test(card.imageUrl) ? card.imageUrl : null,
     priceLabel: `$${priceUsd.toLocaleString("en-US")}`,
     priceUsd,
     areaSqm,

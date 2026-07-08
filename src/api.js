@@ -21,6 +21,7 @@ function publicListingView(item) {
     landSqm: item.landSqm ?? null,
     location: item.location || null,
     minutesToCenter: item.minutesToCenter ?? null,
+    imageUrl: item.imageUrl || null,
     condition: item.condition || "unknown",
     elevator: item.elevator ?? null,
     publishedAt: item.publishedAt || null,

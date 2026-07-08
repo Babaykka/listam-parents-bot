@@ -61,7 +61,7 @@ function canonicalPreference(a, b) {
   );
 }
 
-const FILLABLE_FIELDS = ["areaSqm", "rooms", "floor", "landSqm", "elevator", "pricePerSqm", "minutesToCenter"];
+const FILLABLE_FIELDS = ["areaSqm", "rooms", "floor", "landSqm", "elevator", "pricePerSqm", "minutesToCenter", "imageUrl"];
 
 function fillMissingFields(canonical, duplicate) {
   for (const field of FILLABLE_FIELDS) {
