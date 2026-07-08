@@ -7,6 +7,7 @@ const freshnessTest = require("../src/listingFreshness");
 const { __test: banaliTest } = require("../src/banali");
 const { dedupeListings, isLikelyDuplicate } = require("../src/dedupe");
 const { mergeListings, visibleListings } = require("../src/listingStore");
+const { computeBaselines, explainListing, valueScore } = require("../src/ranking");
 const { __test: estateTest } = require("../src/estate");
 const { __test: listamFeedTest } = require("../src/listamFeed");
 const { __test: listamTest } = require("../src/listam");
@@ -305,6 +306,30 @@ async function main() {
     false,
     "duplicates must not reach listing output"
   );
+
+  const rankingNow = new Date("2026-07-08T12:00:00.000Z");
+  const districtSample = [
+    listing("r1", { location: "Avan", areaSqm: 70, priceUsd: 70000, pricePerSqm: 1000, publishedAt: "2026-07-08T09:00:00.000Z", discoveredAt: "2026-07-08T09:10:00.000Z" }),
+    listing("r2", { location: "Avan", areaSqm: 70, priceUsd: 91000, pricePerSqm: 1300, discoveredAt: "2026-07-01T09:00:00.000Z" }),
+    listing("r3", { location: "Avan", areaSqm: 70, priceUsd: 98000, pricePerSqm: 1400, discoveredAt: "2026-07-01T09:00:00.000Z" }),
+    listing("r4", { location: "Avan", areaSqm: 70, priceUsd: 105000, pricePerSqm: 1500, discoveredAt: "2026-07-01T09:00:00.000Z" }),
+  ];
+  const baselines = computeBaselines(districtSample);
+  assert.equal(baselines.district.get("apartment|Avan"), 1350);
+  const bargainReasons = explainListing(districtSample[0], baselines, rankingNow);
+  assert.match(bargainReasons[0], /цена за м² ниже средней по району примерно на 26%/);
+  assert(bargainReasons.includes("свежее объявление"));
+  assert(valueScore(districtSample[0], baselines, rankingNow) > valueScore(districtSample[3], baselines, rankingNow));
+
+  const annotatedCache = mergeListings([], districtSample, config, rankingNow);
+  const annotatedBargain = annotatedCache.find((item) => item.id === "r1");
+  assert(annotatedBargain.valueScore >= 7, `bargain valueScore should be high, got ${annotatedBargain.valueScore}`);
+  assert(annotatedBargain.whyGood.length >= 2);
+  assert.match(telegramTest.listingLine(annotatedBargain), /Почему интересно:/);
+  const annotatedRegular = annotatedCache.find((item) => item.id === "r4");
+  assert.doesNotMatch(telegramTest.listingLine({ ...annotatedRegular, whyGood: [] }), /Почему интересно:/);
+  const topListings = telegramTest.matchingListings(config, { filters: {} }, annotatedCache, 4, "top");
+  assert.equal(topListings[0].id, "r1", "top mode must put the best-value listing first");
 
   await handleTelegramUpdate(config, state, update("/start", 101));
   assert.equal(activeSubscribers(state, config).length, 1);

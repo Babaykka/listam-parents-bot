@@ -138,6 +138,15 @@ function scoreOf(item) {
   return Number(item.qualityScore ?? item["parent" + "Score"] ?? 0);
 }
 
+function rankScoreOf(item) {
+  return Number(item.valueScore ?? scoreOf(item));
+}
+
+function whyGoodLine(item) {
+  if (!Array.isArray(item.whyGood) || item.whyGood.length < 2) return null;
+  return escapeHtml(`Почему интересно: ${item.whyGood.join("; ")}`);
+}
+
 function conditionLabel(value) {
   return (
     {
@@ -242,6 +251,7 @@ function listingLine(item) {
     joinLine("Параметры", parameters),
     joinLine("Цена", priceDetails),
     joinLine("Дополнительно", comfort),
+    whyGoodLine(item),
     listingDateDetail(item) ? escapeHtml(`Дата: ${listingDateDetail(item)}`) : null,
     sourceLabel(item) ? escapeHtml(`Источник: ${sourceLabel(item)}`) : null,
     item.alsoSources?.length ? escapeHtml(`Также на: ${item.alsoSources.map((entry) => entry.label).join(", ")}`) : null,
@@ -340,7 +350,7 @@ function matchesSubscriber(config, subscriber, item) {
 function matchingListings(config, subscriber, listings, limit = 10, mode = "latest") {
   const filtered = (listings || []).filter((item) => !item.duplicateOf && matchesSubscriber(config, subscriber, item));
   if (mode === "top") {
-    filtered.sort((a, b) => scoreOf(b) - scoreOf(a) || a.priceUsd - b.priceUsd);
+    filtered.sort((a, b) => rankScoreOf(b) - rankScoreOf(a) || a.priceUsd - b.priceUsd);
   } else {
     filtered.sort(compareListingActivity);
   }
