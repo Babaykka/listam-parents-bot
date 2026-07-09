@@ -82,23 +82,33 @@ function sourceStatusEntries(state, options = {}) {
 
 const LISTAM_FAMILY = ["listam", "listam_relay", "listam_feed"];
 
+function isListamListing(item) {
+  if (LISTAM_FAMILY.includes(item.source)) return true;
+  return /list\.am/i.test(String(item.url || ""));
+}
+
 // For end users: collapse the List.am direct scan + relay + feed into one
-// "List.am" line. The direct scan is blocked on the server, but if the relay
-// (a real browser on a home machine) delivered listings, List.am is working —
-// users must not see a scary "недоступен" next to fresh List.am data.
+// "List.am" line. The direct scan is blocked on the server, but List.am is
+// "working" for the user whenever there are browsable List.am listings in the
+// catalog (delivered by the relay) — so we don't show a scary "идёт проверка"
+// next to 67 real, listable List.am offers.
 function mergedSourceEntries(state) {
   const entries = sourceStatusEntries(state);
   const family = entries.filter((entry) => LISTAM_FAMILY.includes(entry.source));
   const others = entries.filter((entry) => !LISTAM_FAMILY.includes(entry.source));
 
+  const catalogCount = (state.listings || []).filter((item) => !item.duplicateOf && isListamListing(item)).length;
+
   const merged = [];
-  if (family.length > 0) {
-    const listings = family.reduce((sum, entry) => sum + Number(entry.listings || 0), 0);
-    const working = family.some((entry) => Number(entry.listings || 0) > 0 && !entry.degraded && !entry.blocked && !entry.lastError);
+  if (family.length > 0 || catalogCount > 0) {
+    const scanCount = family.reduce((sum, entry) => sum + Number(entry.listings || 0), 0);
+    const working =
+      catalogCount > 0 ||
+      family.some((entry) => Number(entry.listings || 0) > 0 && !entry.degraded && !entry.blocked && !entry.lastError);
     merged.push({
       source: "listam",
       label: "List.am",
-      listings,
+      listings: Math.max(catalogCount, scanCount),
       durationMs: null,
       blocked: false,
       probeMode: null,

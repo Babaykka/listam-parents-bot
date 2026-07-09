@@ -327,6 +327,12 @@ async function main() {
   assert.equal(visibleListings(deduped).length, 2);
   assert.match(telegramTest.listingLine(dedupedById.get("banali:D100")), /Также на: MyRealty/);
 
+  // A photo captured on an earlier scan survives a later scan that missed it.
+  const withPhoto = { ...listing(940001, { location: "Avan" }), imageUrl: "https://s.list.am/f/1/2.webp" };
+  const withoutPhoto = { ...listing(940001, { location: "Avan" }), imageUrl: null };
+  const keptPhoto = mergeListings([withPhoto], [withoutPhoto], config).find((item) => item.id === "940001");
+  assert.equal(keptPhoto.imageUrl, "https://s.list.am/f/1/2.webp", "existing photo must survive a photo-less re-scan");
+
   const mergedCache = mergeListings([banaliOriginal], [myrealtyCopy], config);
   const mergedCopy = mergedCache.find((item) => item.id === "myrealty:200");
   assert.equal(mergedCopy.duplicateOf, "banali:D100", "later-found cross-source copy must be marked as duplicate");
@@ -419,7 +425,22 @@ async function main() {
     lastScan: { at: "2026-07-08T10:00:00.000Z", sources: [{ source: "listam", listings: 0, blocked: true }] },
     scanHealth: { sources: { listam: { failStreak: 40, lastError: "проверка браузера" } } },
   });
-  assert.equal(blockedNoRelay.find((entry) => entry.source === "listam").degraded, true, "without relay data List.am is honestly degraded");
+  assert.equal(blockedNoRelay.find((entry) => entry.source === "listam").degraded, true, "without any List.am data the source is honestly degraded");
+
+  // Direct scan blocked and relay data expired, but List.am listings are still
+  // browsable in the catalog → show them, not "идёт проверка".
+  const blockedButCached = mergedSourceEntries({
+    listings: [
+      { id: "23000001", source: "listam", url: "https://www.list.am/item/23000001" },
+      { id: "23000002", source: "listam", url: "https://www.list.am/item/23000002" },
+      { id: "banali:1", source: "banali", url: "https://banali.am/x", duplicateOf: undefined },
+    ],
+    lastScan: { at: "2026-07-08T10:00:00.000Z", sources: [{ source: "listam", listings: 0, blocked: true }] },
+    scanHealth: { sources: { listam: { failStreak: 40, lastError: "проверка браузера" } } },
+  });
+  const listamCached = blockedButCached.find((entry) => entry.source === "listam");
+  assert.equal(listamCached.degraded, false, "browsable cached List.am listings mean the source is working for users");
+  assert.equal(listamCached.listings, 2);
   assert.equal(estateTest.alternateHostUrl("https://www.estate.am/en/feed.rss"), "https://estate.am/en/feed.rss");
   assert.equal(estateTest.alternateHostUrl("https://estate.am/en/feed.rss"), "https://www.estate.am/en/feed.rss");
 
@@ -518,8 +539,9 @@ async function main() {
   };
   const apiPayload = listingsApiPayload(apiState, config, {}, rankingNow);
   assert(apiPayload.total >= 5);
-  assert.equal(apiPayload.sources[0].label, "Banali.am");
-  assert.equal(apiPayload.sources[0].ok, true);
+  const banaliSourceView = apiPayload.sources.find((entry) => entry.label === "Banali.am");
+  assert(banaliSourceView && banaliSourceView.ok, "Banali source present and healthy");
+  assert.equal(apiPayload.sources[0].label, "List.am", "List.am is listed first when the catalog has List.am offers");
   assert(apiPayload.locations.includes("Avan"));
   assert.doesNotMatch(JSON.stringify(apiPayload), /subscribers|secret|rawText/, "public API must not leak subscriber data or raw text");
   const apartmentsOnly = listingsApiPayload(apiState, config, { kind: "apartment", minArea: 70, maxPrice: 100000, sort: "value" }, rankingNow);
@@ -802,7 +824,9 @@ async function main() {
 
   await handleTelegramUpdate(config, state, update("/status", 101));
   assert.match(fake.messages.at(-1).text, /Бот работает/);
-  assert.match(fake.messages.at(-1).text, /проверку браузера/);
+  // Catalog has browsable List.am listings, so the status shows it working.
+  assert.match(fake.messages.at(-1).text, /✅ List\.am/);
+  assert.doesNotMatch(fake.messages.at(-1).text, /List\.am —.*недоступ|List\.am.*идёт проверка/);
 
   config.publicUrl = "https://listam-parents-bot.onrender.com";
   await handleTelegramUpdate(config, state, update("/app", 101));

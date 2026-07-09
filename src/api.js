@@ -14,9 +14,13 @@ function shortDescription(item) {
     .replace(/https?:\/\/\S+/gi, " ")
     .replace(/\b[\w.+-]+@[\w-]+\.[\w.-]+\b/gi, " ")
     .replace(/(?:\+?\d[\d\s().-]{6,}\d)/g, " ")
+    .replace(/\bProperty Not Verified\b/gi, " ") // MyRealty status noise
     .replace(/\S*\/\S*/g, " ") // slug paths like sell/apartment/3-rooms/-B48230
     .replace(/\b\w+_\w[\w_]*\b/g, " ") // snake_case codes like heating_gas_boiler
-    .replace(/\b\d+(?:[.,]\d+)?\s*(?:sq\.?\s*m\.?|sqm|m²|м²|rooms?|room|комн\.?|эт\.?|floor)\b/gi, " ")
+    .replace(/\b\d+(?:[.,]\d+)?\s*(?:sq\.?\s*m\.?|sqm|m²|м²|rooms?|room|rm\.?|комн\.?|эт\.?|floor)\b/gi, " ")
+    .replace(/\b(?:rooms?|rm|floor|эт|комн)\.?\b/gi, " ") // leftover lone unit words
+    .replace(/\s*[.,·]\s*(?=[.,·])/g, "") // collapse repeated punctuation
+    .replace(/\s+([,.])/g, "$1")
     .replace(/\s+/g, " ")
     .trim();
   // Drop a leading price token ("$95,000" / "46,800,000 AMD") — the card already shows price.

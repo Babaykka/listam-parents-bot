@@ -18,6 +18,9 @@ function mergeListings(previous, scanned, config, now = new Date()) {
     byId.set(item.id, {
       ...existing,
       ...item,
+      // Keep a photo we captured earlier if this scan didn't return one (lazy
+      // images aren't always caught), so cards don't lose their picture.
+      imageUrl: item.imageUrl || existing?.imageUrl || null,
       discoveredAt: existing?.discoveredAt || nowIso,
       lastSeenAt: nowIso,
     });
