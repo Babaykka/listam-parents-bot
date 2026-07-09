@@ -108,6 +108,12 @@
     background: var(--chip); position: relative;
   }
   .ph img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  /* Placeholder for listings without a photo, so the grid stays consistent. */
+  .ph.empty {
+    display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(135deg, var(--chip), var(--card));
+  }
+  .ph.empty .glyph { font-size: 40px; opacity: 0.5; }
   .fresh {
     font-size: 11px; font-weight: 600; color: var(--why);
     background: var(--why-bg); border-radius: 999px; padding: 2px 8px;
@@ -118,7 +124,16 @@
   .price { font-size: 19px; font-weight: 700; letter-spacing: -0.02em; }
   .sqm { color: var(--text-2); font-size: 13px; white-space: nowrap; }
   .row2 { margin-top: 3px; font-size: 14.5px; }
+  .desc { margin-top: 5px; font-size: 13px; color: var(--text-2); line-height: 1.4; }
   .row3 { margin-top: 5px; color: var(--text-2); font-size: 13px; display: flex; flex-wrap: wrap; gap: 4px 10px; }
+  .fav {
+    position: absolute; top: 8px; right: 8px; z-index: 2;
+    width: 34px; height: 34px; border: none; border-radius: 999px;
+    background: rgba(0,0,0,0.45); color: #fff; font-size: 17px; line-height: 34px;
+    text-align: center; cursor: pointer; padding: 0; -webkit-tap-highlight-color: transparent;
+  }
+  .fav.on { color: #ff5a76; }
+  .card { position: relative; }
   .why {
     margin-top: 8px; font-size: 13px; color: var(--why);
     background: var(--why-bg); border-radius: 8px; padding: 6px 9px;
@@ -156,8 +171,15 @@
     <button class="chip on" data-kind="">Все</button>
     <button class="chip" data-kind="apartment">Квартиры</button>
     <button class="chip" data-kind="house">Дома</button>
-    <button class="chip" data-sort="value">Выгодные</button>
+    <button class="chip" data-fav="1">❤ Избранное</button>
     <button class="chip" data-minarea="70">От 70 м²</button>
+    <select class="chip" id="sortSel">
+      <option value="fresh">Сначала свежие</option>
+      <option value="value">Сначала выгодные</option>
+      <option value="price_asc">Сначала дешевле</option>
+      <option value="price_desc">Сначала дороже</option>
+      <option value="area_desc">Больше площадь</option>
+    </select>
     <select class="chip" id="districtSel"><option value="">Все районы</option></select>
     <select class="chip" id="priceSel">
       <option value="">Любая цена</option>
@@ -187,9 +209,22 @@
   var meta = null;
   var shown = 0;
   var PAGE = 20;
-  var state = { kind: "", sort: "fresh", minArea: 0, location: "", maxPrice: 0 };
+  var state = { kind: "", sort: "fresh", minArea: 0, location: "", maxPrice: 0, favOnly: false };
 
   var $ = function (id) { return document.getElementById(id); };
+
+  var FAV_KEY = "dom_favorites_v1";
+  function loadFavs() {
+    try { return new Set(JSON.parse(localStorage.getItem(FAV_KEY) || "[]")); } catch (e) { return new Set(); }
+  }
+  var favs = loadFavs();
+  function saveFavs() {
+    try { localStorage.setItem(FAV_KEY, JSON.stringify([...favs])); } catch (e) {}
+  }
+  function toggleFav(id) {
+    if (favs.has(id)) favs.delete(id); else favs.add(id);
+    saveFavs();
+  }
 
   function money(v) { return "$" + Number(v || 0).toLocaleString("en-US"); }
 
@@ -215,6 +250,7 @@
   }
 
   function matches(item) {
+    if (state.favOnly && !favs.has(item.id)) return false;
     if (state.kind && item.kindKey !== state.kind) return false;
     if (state.minArea && !(Number(item.areaSqm) >= state.minArea)) return false;
     if (state.location && item.location !== state.location) return false;
@@ -225,11 +261,15 @@
   function sorted(items) {
     var arr = items.slice();
     if (state.sort === "value") {
-      arr.sort(function (a, b) {
-        return (b.valueScore || 0) - (a.valueScore || 0) || (a.priceUsd || 0) - (b.priceUsd || 0);
-      });
+      arr.sort(function (a, b) { return (b.valueScore || 0) - (a.valueScore || 0) || (a.priceUsd || 0) - (b.priceUsd || 0); });
+    } else if (state.sort === "price_asc") {
+      arr.sort(function (a, b) { return (a.priceUsd || 0) - (b.priceUsd || 0); });
+    } else if (state.sort === "price_desc") {
+      arr.sort(function (a, b) { return (b.priceUsd || 0) - (a.priceUsd || 0); });
+    } else if (state.sort === "area_desc") {
+      arr.sort(function (a, b) { return (b.areaSqm || 0) - (a.areaSqm || 0); });
     }
-    return arr; // server already sends fresh-first
+    return arr; // "fresh" keeps the server's newest-first order
   }
 
   function isFresh(item) {
@@ -258,15 +298,20 @@
 
     var freshBadge = isFresh(item) ? '<span class="fresh">новое</span>' : "";
     var proxied = item.imageUrl ? "/img?u=" + encodeURIComponent(item.imageUrl) : "";
+    var glyph = item.kindKey === "house" ? "🏡" : "🏢";
     var photo = proxied
-      ? '<div class="ph"><img loading="lazy" src="' + esc(proxied) + '" alt="">' + freshBadge + "</div>"
-      : "";
+      ? '<div class="ph" data-glyph="' + glyph + '"><img loading="lazy" src="' + esc(proxied) + '" alt="">' + freshBadge + "</div>"
+      : '<div class="ph empty"><span class="glyph">' + glyph + "</span>" + freshBadge + "</div>";
+    var isFav = favs.has(item.id);
+    var favBtn = '<button class="fav' + (isFav ? " on" : "") + '" data-fav-id="' + esc(item.id) + '" aria-label="В избранное">' + (isFav ? "♥" : "♡") + "</button>";
     return '<a class="card" href="' + esc(item.url) + '" target="_blank" rel="noopener">'
+      + favBtn
       + photo
       + '<div class="row1"><span class="price">' + esc(item.kind) + " · " + money(item.priceUsd) + (photo ? "" : freshBadge) + "</span>"
       + (item.pricePerSqm ? '<span class="sqm">' + money(item.pricePerSqm) + "/м²</span>" : "")
       + "</div>"
       + (title ? '<div class="row2">' + esc(title) + "</div>" : "")
+      + (item.description ? '<div class="desc">' + esc(item.description) + "</div>" : "")
       + '<div class="row3">' + metaBits.map(function (b) { return "<span>" + esc(b) + "</span>"; }).join("") + "</div>"
       + (item.whyGood && item.whyGood.length >= 2 ? '<div class="why">' + esc("Почему интересно: " + item.whyGood.join("; ")) + "</div>" : "")
       + '<div class="row4"><span>' + esc(when) + '</span><span class="badge">' + src + "</span></div>"
@@ -279,11 +324,21 @@
     shown = Math.min(items.length, shown + PAGE);
     $("cards").innerHTML = items.slice(0, shown).map(card).join("") || "";
     $("cards").querySelectorAll(".ph img").forEach(function (img) {
-      img.addEventListener("error", function () { img.parentNode.remove(); }, { once: true });
+      img.addEventListener("error", function () {
+        var ph = img.parentNode;
+        var glyph = ph.getAttribute("data-glyph") || "🏢";
+        var badge = ph.querySelector(".fresh");
+        ph.classList.add("empty");
+        ph.innerHTML = '<span class="glyph">' + glyph + "</span>" + (badge ? badge.outerHTML : "");
+      }, { once: true });
     });
     $("more").hidden = shown >= items.length;
     $("note").hidden = items.length > 0;
-    if (items.length === 0) $("note").textContent = "Под эти фильтры пока ничего нет. Попробуй убрать часть фильтров.";
+    if (items.length === 0) {
+      $("note").textContent = state.favOnly
+        ? "В избранном пока пусто. Нажми ♡ на карточке, чтобы сохранить вариант."
+        : "Под эти фильтры пока ничего нет. Попробуй убрать часть фильтров.";
+    }
   }
 
   function renderMeta() {
@@ -329,9 +384,8 @@
       state.kind = btn.dataset.kind;
       document.querySelectorAll("[data-kind]").forEach(function (b) { b.classList.toggle("on", b === btn); });
     }
-    if (btn.dataset.sort) {
-      var on = btn.classList.toggle("on");
-      state.sort = on ? "value" : "fresh";
+    if (btn.dataset.fav) {
+      state.favOnly = btn.classList.toggle("on");
     }
     if (btn.dataset.minarea) {
       var onA = btn.classList.toggle("on");
@@ -339,9 +393,24 @@
     }
     render(true);
   });
+  $("sortSel").addEventListener("change", function () { state.sort = this.value; this.classList.toggle("on", this.value !== "fresh"); render(true); });
   $("districtSel").addEventListener("change", function () { state.location = this.value; this.classList.toggle("on", !!this.value); render(true); });
   $("priceSel").addEventListener("change", function () { state.maxPrice = Number(this.value) || 0; this.classList.toggle("on", !!this.value); render(true); });
   $("more").addEventListener("click", function () { render(false); });
+
+  // Tapping the heart toggles a favourite without following the card link.
+  $("cards").addEventListener("click", function (event) {
+    var fav = event.target.closest(".fav");
+    if (!fav) return;
+    event.preventDefault();
+    event.stopPropagation();
+    var id = fav.getAttribute("data-fav-id");
+    toggleFav(id);
+    var nowOn = favs.has(id);
+    fav.classList.toggle("on", nowOn);
+    fav.textContent = nowOn ? "♥" : "♡";
+    if (state.favOnly && !nowOn) render(true);
+  });
 
   load();
 })();

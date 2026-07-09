@@ -553,21 +553,25 @@ function imageReferer(hostname) {
   return `https://www.${apex}/`;
 }
 
-async function handleImageProxy(req, res, url) {
-  let target;
+function isAllowedImageTarget(value) {
   try {
-    target = new URL(url.searchParams.get("u") || "");
+    const parsed = new URL(value);
+    if (parsed.protocol !== "https:") return null;
+    if (!IMAGE_HOST_ALLOWLIST.test(parsed.hostname)) return null;
+    return parsed;
   } catch {
-    text(res, 400, "bad image url");
-    return;
+    return null;
   }
-  if (target.protocol !== "https:" || !IMAGE_HOST_ALLOWLIST.test(target.hostname)) {
-    text(res, 400, "image host not allowed");
-    return;
-  }
+}
 
-  try {
-    const upstream = await fetch(target.href, {
+// Follows redirects manually and re-validates every hop against the allowlist,
+// so an open-redirect on an allowed host can't turn the proxy into an SSRF
+// probe against internal addresses.
+async function fetchAllowedImage(startTarget) {
+  let target = startTarget;
+  for (let hop = 0; hop < 4; hop += 1) {
+    const response = await fetch(target.href, {
+      redirect: "manual",
       headers: {
         "user-agent":
           "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
@@ -576,8 +580,35 @@ async function handleImageProxy(req, res, url) {
       },
       signal: AbortSignal.timeout(15000),
     });
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get("location");
+      const next = location && isAllowedImageTarget(new URL(location, target).href);
+      if (!next) return { blocked: true };
+      target = next;
+      continue;
+    }
+    return { response };
+  }
+  return { blocked: true };
+}
+
+async function handleImageProxy(req, res, url) {
+  const target = isAllowedImageTarget(url.searchParams.get("u") || "");
+  if (!target) {
+    text(res, 400, "image host not allowed");
+    return;
+  }
+
+  try {
+    const { response: upstream, blocked } = await fetchAllowedImage(target);
+    if (blocked) {
+      res.writeHead(502);
+      res.end();
+      return;
+    }
     const contentType = upstream.headers.get("content-type") || "";
-    if (!upstream.ok || !/^image\//i.test(contentType)) {
+    const declaredLength = Number(upstream.headers.get("content-length") || 0);
+    if (!upstream.ok || !/^image\//i.test(contentType) || declaredLength > MAX_IMAGE_BYTES) {
       res.writeHead(502);
       res.end();
       return;

@@ -10,7 +10,7 @@ const { mergeListings, visibleListings } = require("../src/listingStore");
 const { computeBaselines, explainListing, valueScore } = require("../src/ranking");
 const { coreSourcesDown, isSourceDegraded, mergedSourceEntries, sourceStatusEntries, updateSourceHealth } = require("../src/sourceHealth");
 const { relayFallbackResult, sanitizeIngestPayload, storeRelayListings } = require("../src/ingest");
-const { listingsApiPayload, publicListingView } = require("../src/api");
+const { listingsApiPayload, publicListingView, shortDescription } = require("../src/api");
 const { __test: estateTest } = require("../src/estate");
 const { __test: listamFeedTest } = require("../src/listamFeed");
 const { __test: listamTest } = require("../src/listam");
@@ -533,11 +533,29 @@ async function main() {
   assert.equal(apiView.sourceLabel, "Banali.am");
   assert.equal(apiView.imageUrl, "https://banali.am/storage/x.jpg");
 
+  // Short description is derived from the listing text but must never leak PII.
+  assert.equal(
+    shortDescription({ rawText: "$95,000 newly renovated 2 room apartment near the park, call +374 91 234567 or owner@mail.ru https://list.am/item/1" }),
+    "newly renovated 2 room apartment near the park, call or",
+    "description must drop price, phone, email and URL"
+  );
+  assert.equal(shortDescription({ rawText: "Avan" }), null, "too-short text yields no description");
+  assert.equal(
+    shortDescription({ description: "Просторная светлая квартира с новым ремонтом и мебелью в тихом районе рядом со школой и супермаркетом, есть парковка и кладовая комната для хранения вещей жильцов" }).endsWith("…"),
+    true,
+    "long descriptions are truncated with an ellipsis"
+  );
+  assert.equal(apiPayload.listings[0].description !== undefined, true, "API listings expose a description field");
+
   const webappHtml = fs.readFileSync(path.join(__dirname, "..", "src", "webapp.html"), "utf8");
   assert.match(webappHtml, /api\/listings/);
   assert.match(webappHtml, /telegram-web-app\.js/);
   assert.match(webappHtml, /loading="lazy"/, "listing photos must lazy-load");
   assert.match(webappHtml, /\/img\?u=/, "photos must load through the same-origin proxy");
+  assert.match(webappHtml, /dom_favorites_v1/, "favorites persist in localStorage");
+  assert.match(webappHtml, /data-fav-id/, "cards carry a favorite toggle");
+  assert.match(webappHtml, /id="sortSel"/, "catalog has a sort control");
+  assert.match(webappHtml, /class="desc"/, "cards render a short description");
 
   await handleTelegramUpdate(config, state, update("/start", 101));
   assert.equal(activeSubscribers(state, config).length, 1);

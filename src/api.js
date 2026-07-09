@@ -6,6 +6,24 @@ const { unique } = require("./utils");
 const MAX_API_LIMIT = 300;
 const DEFAULT_API_LIMIT = 120;
 
+// A short, human-ish blurb derived from the listing text — with phones, emails
+// and URLs stripped so we never surface contact/PII, and truncated for cards.
+function shortDescription(item) {
+  let text = String(item.description || item.rawText || "")
+    .replace(/https?:\/\/\S+/gi, " ")
+    .replace(/\b[\w.+-]+@[\w-]+\.[\w.-]+\b/gi, " ")
+    .replace(/(?:\+?\d[\d\s().-]{6,}\d)/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  // Drop a leading price token ("$95,000" / "46,800,000 AMD") — the card already shows price.
+  text = text.replace(/^[$֏€]?\s*[\d,.\s]+\s*(?:AMD|USD|Դ|\$|€|֏)?\s*[·,-]?\s*/i, "").trim();
+  if (text.length < 15) return null;
+  if (text.length <= 140) return text;
+  const cut = text.slice(0, 140);
+  const lastSpace = cut.lastIndexOf(" ");
+  return `${(lastSpace > 80 ? cut.slice(0, lastSpace) : cut).trim()}…`;
+}
+
 // Only fields a public catalog needs; never subscriber data or raw scrape text.
 function publicListingView(item) {
   return {
@@ -28,6 +46,7 @@ function publicListingView(item) {
     updatedAt: item.updatedAt || null,
     discoveredAt: item.discoveredAt || null,
     url: item.url,
+    description: shortDescription(item),
     sourceLabel: item.sourceLabel || (/list\.am/i.test(String(item.url || "")) ? "List.am" : ""),
     alsoSources: (item.alsoSources || []).map((entry) => entry.label),
     whyGood: item.whyGood || [],
@@ -101,4 +120,5 @@ function listingsApiPayload(state, config, query = {}, now = new Date()) {
 module.exports = {
   listingsApiPayload,
   publicListingView,
+  shortDescription,
 };
