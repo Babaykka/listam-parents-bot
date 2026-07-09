@@ -292,6 +292,15 @@ function qualityScore(item) {
   return clamp(Math.round(score * 10) / 10, 0, 10);
 }
 
+function normalizeImageUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw || /^data:/i.test(raw)) return null;
+  // List.am thumbnails may come as protocol-relative (//s.list.am/...) or http.
+  if (raw.startsWith("//")) return `https:${raw}`;
+  if (/^https?:\/\//i.test(raw)) return raw.replace(/^http:/i, "https:");
+  return null;
+}
+
 function parseItem(raw, category, config) {
   const text = normalizeText(raw.text);
   const price = parsePrice(text);
@@ -314,7 +323,7 @@ function parseItem(raw, category, config) {
     kindKey: category.key,
     title: cleanTitle(text, price, config),
     url: `https://www.list.am/item/${id}`,
-    imageUrl: /^https?:\/\//i.test(String(raw.imageUrl || "")) ? String(raw.imageUrl).replace(/^http:/i, "https:") : null,
+    imageUrl: normalizeImageUrl(raw.imageUrl),
     priceLabel: price.label,
     priceUsd: price.usd,
     areaSqm: area,
@@ -356,15 +365,60 @@ async function waitForListings(page, config) {
 }
 
 async function extractPageItems(page) {
-  return page.$$eval("a[href*='/item/']", (links) =>
-    links
+  return page.$$eval("a[href*='/item/']", (links) => {
+    function backgroundUrl(el) {
+      const style = el && el.style && el.style.backgroundImage;
+      const match = style && style.match(/url\(["']?(.*?)["']?\)/i);
+      return match ? match[1] : "";
+    }
+    function firstSrcset(value) {
+      return String(value || "").split(",")[0].trim().split(/\s+/)[0] || "";
+    }
+    function isReal(url) {
+      return url && !/^data:/i.test(url) && !/(?:^|\/)(?:blank|placeholder|spacer|1x1|no[-_]?image)/i.test(url);
+    }
+    // List.am renders the thumbnail as a lazy <img> (real URL in data-src/srcset,
+    // src is a placeholder) or a CSS background-image, sometimes on a separate
+    // <a> than the text link. Pull it from anywhere and share it across the card.
+    function findImage(a) {
+      const img = a.querySelector("img");
+      if (img) {
+        const candidates = [
+          img.getAttribute("data-src"),
+          img.getAttribute("data-original"),
+          firstSrcset(img.getAttribute("data-srcset")),
+          firstSrcset(img.getAttribute("srcset")),
+          img.currentSrc,
+          img.getAttribute("src"),
+        ];
+        for (const candidate of candidates) if (isReal(candidate)) return candidate;
+      }
+      if (isReal(backgroundUrl(a))) return backgroundUrl(a);
+      const holder = a.querySelector('[style*="background-image"]');
+      if (holder && isReal(backgroundUrl(holder))) return backgroundUrl(holder);
+      return "";
+    }
+
+    const idOf = (a) => (a.getAttribute("href") || "").match(/\/item\/(\d+)/)?.[1] || "";
+    const imageById = {};
+    for (const a of links) {
+      const id = idOf(a);
+      if (!id || imageById[id]) continue;
+      const url = findImage(a);
+      if (url) imageById[id] = url;
+    }
+
+    return links
       .map((a) => {
-        const img = a.querySelector("img");
-        const imageUrl = (img && (img.currentSrc || img.src || img.getAttribute("data-src") || img.getAttribute("data-original"))) || "";
-        return { href: a.href, text: a.innerText.replace(/\s+/g, " ").trim(), imageUrl };
+        const id = idOf(a);
+        return {
+          href: a.href,
+          text: a.innerText.replace(/\s+/g, " ").trim(),
+          imageUrl: (id && imageById[id]) || findImage(a),
+        };
       })
-      .filter((item) => item.text && /(\$|֏|€)/.test(item.text))
-  );
+      .filter((item) => item.text && /(\$|֏|€)/.test(item.text));
+  });
 }
 
 async function scanListAm(config, logger = console) {
@@ -442,6 +496,7 @@ module.exports = {
     parsePublishedAt,
     parsePrice,
     parseLocation,
+    normalizeImageUrl,
     qualityScore,
   },
 };

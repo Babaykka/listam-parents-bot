@@ -72,6 +72,10 @@ async function main() {
   assert(parsed.publishedAt, "publishedAt should be parsed from listing text");
   assert.equal(parsed.publishedAtPrecision, "datetime");
   assert.equal(parsed.imageUrl, "https://s.list.am/f/123/12345678.webp", "thumbnail must be kept and upgraded to https");
+  assert.equal(listamTest.normalizeImageUrl("//s.list.am/f/1/2.webp"), "https://s.list.am/f/1/2.webp", "protocol-relative thumbnails must resolve to https");
+  assert.equal(listamTest.normalizeImageUrl("http://img.list.am/a/b.jpg"), "https://img.list.am/a/b.jpg");
+  assert.equal(listamTest.normalizeImageUrl("data:image/gif;base64,AAAA"), null, "placeholder data URIs must be dropped");
+  assert.equal(listamTest.normalizeImageUrl(""), null);
   const publishedWithTime = listamTest.parsePublishedDate("Posted Today 14:30", new Date("2026-06-20T08:00:00.000Z"));
   assert.deepEqual(publishedWithTime, { iso: "2026-06-20T10:30:00.000Z", precision: "datetime" });
   const publishedDateOnly = listamTest.parsePublishedDate("Posted 20 Jun 2026", new Date("2026-06-20T08:00:00.000Z"));
