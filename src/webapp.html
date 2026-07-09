@@ -123,6 +123,18 @@
   .row1 { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
   .price { font-size: 19px; font-weight: 700; letter-spacing: -0.02em; }
   .sqm { color: var(--text-2); font-size: 13px; white-space: nowrap; }
+  .search {
+    width: 100%; margin: 10px 0 2px; box-sizing: border-box;
+    border: 1px solid var(--line); background: var(--card); color: var(--text);
+    border-radius: 12px; padding: 11px 14px; font-size: 15px; -webkit-appearance: none;
+  }
+  .search::placeholder { color: var(--text-3); }
+  .drop {
+    display: inline-block; font-size: 11px; font-weight: 600; color: #fff;
+    background: #d0392f; border-radius: 999px; padding: 2px 8px; margin-left: 6px;
+    vertical-align: 2px; white-space: nowrap;
+  }
+  .ph .drop { position: absolute; top: 8px; left: 8px; margin: 0; }
   .row2 { margin-top: 3px; font-size: 14.5px; }
   .desc { margin-top: 5px; font-size: 13px; color: var(--text-2); line-height: 1.4; }
   .row3 { margin-top: 5px; color: var(--text-2); font-size: 13px; display: flex; flex-wrap: wrap; gap: 4px 10px; }
@@ -167,6 +179,8 @@
     <div class="sources" id="sources"></div>
   </header>
 
+  <input type="search" id="search" class="search" placeholder="Поиск: район, улица, ключевое слово…" autocomplete="off">
+
   <div class="filters" id="filters">
     <button class="chip on" data-kind="">Все</button>
     <button class="chip" data-kind="apartment">Квартиры</button>
@@ -209,7 +223,7 @@
   var meta = null;
   var shown = 0;
   var PAGE = 20;
-  var state = { kind: "", sort: "fresh", minArea: 0, location: "", maxPrice: 0, favOnly: false };
+  var state = { kind: "", sort: "fresh", minArea: 0, location: "", maxPrice: 0, favOnly: false, query: "" };
 
   var $ = function (id) { return document.getElementById(id); };
 
@@ -255,6 +269,10 @@
     if (state.minArea && !(Number(item.areaSqm) >= state.minArea)) return false;
     if (state.location && item.location !== state.location) return false;
     if (state.maxPrice && Number(item.priceUsd) > state.maxPrice) return false;
+    if (state.query) {
+      var hay = ((item.location || "") + " " + (item.description || "") + " " + (item.kind || "") + " " + (item.sourceLabel || "")).toLowerCase();
+      if (hay.indexOf(state.query) === -1) return false;
+    }
     return true;
   }
 
@@ -304,10 +322,11 @@
       : '<div class="ph empty"><span class="glyph">' + glyph + "</span>" + freshBadge + "</div>";
     var isFav = favs.has(item.id);
     var favBtn = '<button class="fav' + (isFav ? " on" : "") + '" data-fav-id="' + esc(item.id) + '" aria-label="В избранное">' + (isFav ? "♥" : "♡") + "</button>";
+    var dropBadge = item.priceDropPercent ? '<span class="drop">↓ ' + item.priceDropPercent + "%</span>" : "";
     return '<a class="card" href="' + esc(item.url) + '" target="_blank" rel="noopener">'
       + favBtn
       + photo
-      + '<div class="row1"><span class="price">' + esc(item.kind) + " · " + money(item.priceUsd) + (photo ? "" : freshBadge) + "</span>"
+      + '<div class="row1"><span class="price">' + esc(item.kind) + " · " + money(item.priceUsd) + dropBadge + (photo ? "" : freshBadge) + "</span>"
       + (item.pricePerSqm ? '<span class="sqm">' + money(item.pricePerSqm) + "/м²</span>" : "")
       + "</div>"
       + (title ? '<div class="row2">' + esc(title) + "</div>" : "")
@@ -376,6 +395,13 @@
       $("note").innerHTML = "Не получилось загрузить: " + esc(e.message) + '<br><br><button class="more" onclick="location.reload()">Обновить</button>';
     });
   }
+
+  var searchTimer = null;
+  $("search").addEventListener("input", function () {
+    var value = this.value.trim().toLowerCase();
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(function () { state.query = value; render(true); }, 200);
+  });
 
   $("filters").addEventListener("click", function (event) {
     var btn = event.target.closest("button.chip");

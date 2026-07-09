@@ -64,13 +64,13 @@ services:
       - key: MYREALTY_FALLBACK_ENABLED
         value: "true"
       - key: MYREALTY_PAGES_PER_CATEGORY
-        value: "5"
+        value: "7"
       - key: ESTATE_FALLBACK_ENABLED
         value: "true"
       - key: BANALI_FALLBACK_ENABLED
         value: "true"
       - key: BANALI_PAGES_PER_CATEGORY
-        value: "5"
+        value: "8"
       - key: BANALI_CONCURRENCY
         value: "4"
       - key: AMD_PER_USD

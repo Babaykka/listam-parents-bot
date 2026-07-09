@@ -1,5 +1,5 @@
 const { compareListingActivity, daysSince } = require("./listingFreshness");
-const { visibleListings } = require("./listingStore");
+const { priceDropPercent, visibleListings } = require("./listingStore");
 const { mergedSourceEntries } = require("./sourceHealth");
 const { unique } = require("./utils");
 
@@ -64,6 +64,7 @@ function publicListingView(item) {
     alsoSources: (item.alsoSources || []).map((entry) => entry.label),
     whyGood: item.whyGood || [],
     valueScore: item.valueScore ?? null,
+    priceDropPercent: priceDropPercent(item),
   };
 }
 
@@ -95,6 +96,10 @@ function sortListings(listings, sort) {
   const sorted = listings.slice();
   if (sort === "value") {
     sorted.sort((a, b) => Number(b.valueScore ?? 0) - Number(a.valueScore ?? 0) || Number(a.priceUsd || 0) - Number(b.priceUsd || 0));
+  } else if (sort === "price_asc") {
+    sorted.sort((a, b) => Number(a.priceUsd || 0) - Number(b.priceUsd || 0));
+  } else if (sort === "price_desc") {
+    sorted.sort((a, b) => Number(b.priceUsd || 0) - Number(a.priceUsd || 0));
   } else {
     sorted.sort(compareListingActivity);
   }

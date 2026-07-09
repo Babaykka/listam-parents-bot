@@ -1,6 +1,8 @@
 const { activeSubscribers, deactivateSubscriber, defaultFilters, normalizeFilters, upsertSubscriber, writeState } = require("./state");
 const { parseFilterRequest } = require("./aiFilters");
 const { listingSourceKey } = require("./dedupe");
+const { looksLikeListingPost, parseForwardedListing } = require("./forwarded");
+const { priceDropPercent } = require("./listingStore");
 const { compareListingActivity, daysSince, shouldNotifyListing } = require("./listingFreshness");
 const { mergedSourceEntries, sourceStatusEntries } = require("./sourceHealth");
 const { clamp, escapeHtml, normalizeText, sleep } = require("./utils");
@@ -258,8 +260,9 @@ function listingLine(item) {
     conditionLabel(item.condition),
   ];
 
+  const dropPct = priceDropPercent(item);
   return [
-    `<b>${escapeHtml(item.kind)} · ${escapeHtml(item.priceLabel)}</b>`,
+    `<b>${escapeHtml(item.kind)} · ${escapeHtml(item.priceLabel)}</b>${dropPct ? ` 🔻 ${escapeHtml(`цена снижена на ${dropPct}%`)}` : ""}`,
     escapeHtml(`Район: ${location}`),
     joinLine("Параметры", parameters),
     joinLine("Цена", priceDetails),
@@ -870,10 +873,12 @@ function helpText(config, state) {
     `/app - каталог всех вариантов с фильтрами`,
     `/latest - свежие варианты в чат`,
     `/filters - что я сейчас ищу`,
+    `/add - добавить объявление из Facebook (перешли пост боту)`,
     `/status - работает ли бот`,
     `/scan - проверить источники прямо сейчас`,
     `/stop - выключить уведомления`,
     "",
+    `Нашёл объявление в Facebook-группе? Просто перешли его сюда — я разберу цену, район и площадь и добавлю в каталог.`,
     `Тонкая ручная настройка командами: /setup`,
     `Поделиться ботом: ${escapeHtml(username)}`,
   ].join("\n");
@@ -1210,6 +1215,7 @@ async function configureTelegram(config, state) {
       { command: "app", description: "Каталог с фильтрами" },
       { command: "latest", description: "Свежие варианты в чат" },
       { command: "filters", description: "Что я сейчас ищу" },
+      { command: "add", description: "Добавить пост из Facebook" },
       { command: "status", description: "Работает ли бот" },
       { command: "scan", description: "Проверить источники сейчас" },
       { command: "help", description: "Помощь" },
@@ -1575,18 +1581,57 @@ async function handleCommand(config, state, message, hooks = {}) {
     return handleAdminCommand(config, state, chat, command, args, hooks);
   }
 
+  if (command === "/add") {
+    const body = normalizeText(args.join(" "));
+    if (!body) {
+      await sendMessage(
+        config,
+        chat.id,
+        "Пришли текст объявления из Facebook-группы (или просто перешли пост боту). Я разберу цену, район, площадь и добавлю в каталог.\n\nПример: /add Квартира Аван, 2 комнаты, 68 м², 5/9 этаж, ремонт, $95000"
+      );
+      return true;
+    }
+    const handled = await handleForwardedListing(config, state, chat, message, body, hooks);
+    if (!handled) {
+      await sendMessage(config, chat.id, "Не смог распознать объявление: не нашёл цену. Убедись, что в тексте есть цена ($ или драм) и тип жилья.");
+    }
+    return true;
+  }
+
   if (command.startsWith("/")) {
     await sendMessage(config, chat.id, "Не понял команду. Нажми /tour, если хочешь быстро понять, как работает бот, или /help для всех команд.");
     return true;
   }
 
   if (chat.type === "private") {
+    const forwarded = Boolean(message.forward_date || message.forward_origin || message.forward_from || message.forward_from_chat);
+    if ((forwarded || looksLikeListingPost(text)) && (await handleForwardedListing(config, state, chat, message, text, hooks))) {
+      return true;
+    }
     const handledListingRequest = await handleNaturalListingRequest(config, state, subscriber, chat, text, hooks);
     if (handledListingRequest) return true;
     return proposeAiFilters(config, subscriber, chat.id, text);
   }
 
   return false;
+}
+
+async function handleForwardedListing(config, state, chat, message, text, hooks = {}) {
+  const item = parseForwardedListing(text, config, { fromId: chat.id, messageId: message.message_id });
+  if (!item) return false;
+
+  const added = await Promise.resolve(hooks.addListings?.([item], { chatId: chat.id })).catch((error) => {
+    console.error(`[telegram] addListings failed: ${error.message}`);
+    return null;
+  });
+  if (added === null || added === false) return false;
+
+  await sendMessage(
+    config,
+    chat.id,
+    ["Добавил объявление в каталог:", "", listingLine(item), "", "Оно попадёт в /latest и в каталог. Если это был не тот текст — просто игнорируй."].join("\n")
+  );
+  return true;
 }
 
 function adminHelpText() {
@@ -1751,8 +1796,11 @@ async function handleAdminCommand(config, state, chat, command, args, hooks = {}
 
 async function handleTelegramUpdate(config, state, update, hooks = {}) {
   if (update.callback_query) return handleCallbackQuery(config, state, update.callback_query, hooks);
-  const message = update.message;
-  if (!message?.chat || !message.text) return false;
+  let message = update.message;
+  if (!message?.chat) return false;
+  // Accept photo/media captions too, so a forwarded post with an image is parsed.
+  if (!message.text && message.caption) message = { ...message, text: message.caption };
+  if (!message.text) return false;
   return handleCommand(config, state, message, hooks);
 }
 

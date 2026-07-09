@@ -459,6 +459,37 @@ async function maybeNotifyCoreSourceIssue(config, state) {
   }
 }
 
+// Merge user-forwarded listings into the catalog immediately and notify
+// subscribers, reusing the same pipeline (dedupe, ranking, freshness) as scans.
+async function addForwardedListings(items) {
+  const fresh = (items || []).filter(Boolean);
+  if (fresh.length === 0) return false;
+
+  const knownIds = new Set((state.listings || []).map((item) => item.id));
+  state.listings = mergeListings(state.listings, fresh, config);
+  const mergedById = new Map(state.listings.map((item) => [item.id, item]));
+  const toNotify = fresh
+    .filter((item) => !knownIds.has(item.id))
+    .map((item) => mergedById.get(item.id) || item)
+    .filter((item) => item && !item.duplicateOf);
+
+  state.seenIds = nextSeenIds(state.seenIds || [], state.listings, config.maxSeenIds);
+  writeState(config, state);
+
+  if (toNotify.length > 0) {
+    await notifySubscribers(config, state, toNotify).catch((error) => console.error(`[forwarded] notify failed: ${error.message}`));
+    writeState(config, state);
+  }
+  return true;
+}
+
+function telegramHooks() {
+  return {
+    scanNow: () => runScanCycle("telegram-command"),
+    addListings: (items) => addForwardedListings(items),
+  };
+}
+
 function scheduleNextScan(delayMs = currentScanDelayMinutes() * 60 * 1000) {
   if (nextScanTimer) clearTimeout(nextScanTimer);
   state.nextScanAt = new Date(Date.now() + delayMs).toISOString();
@@ -537,7 +568,7 @@ async function handleWebhook(req, res) {
 
   const body = await readRequestBody(req);
   const update = JSON.parse(body || "{}");
-  await handleTelegramUpdate(config, state, update, { scanNow: () => runScanCycle("telegram-command") });
+  await handleTelegramUpdate(config, state, update, telegramHooks());
   writeState(config, state);
   json(res, 200, { ok: true });
 }
@@ -680,7 +711,7 @@ function createServer() {
 async function pollTelegramLoop() {
   if (config.publicUrl || !config.pollTelegramWhenNoWebhook || (!config.telegramToken && !config.dryRun)) return;
   try {
-    const count = await pollTelegramOnce(config, state, { scanNow: () => runScanCycle("telegram-command") });
+    const count = await pollTelegramOnce(config, state, telegramHooks());
     if (count > 0) writeState(config, state);
   } catch (error) {
     console.error(`[telegram-poll] ${error.message}`);

@@ -1,0 +1,11 @@
+{
+  "timestamp": "2026-07-08T15:26:37.012Z",
+  "projectRoot": "/Users/hrach/Downloads/Дом",
+  "structure": {
+    "hasPackageJson": true,
+    "hasTsConfig": false,
+    "hasClaudeConfig": true,
+    "hasClaudeFlow": true
+  },
+  "scannedAt": 1783524397012
+}

@@ -6,12 +6,13 @@ const { activeSubscribers, readState, writeState } = require("../src/state");
 const freshnessTest = require("../src/listingFreshness");
 const { __test: banaliTest } = require("../src/banali");
 const { dedupeListings, isLikelyDuplicate } = require("../src/dedupe");
-const { mergeListings, visibleListings } = require("../src/listingStore");
+const { mergeListings, priceDropPercent, visibleListings } = require("../src/listingStore");
 const { computeBaselines, explainListing, valueScore } = require("../src/ranking");
 const { coreSourcesDown, isSourceDegraded, mergedSourceEntries, sourceStatusEntries, updateSourceHealth } = require("../src/sourceHealth");
 const { relayFallbackResult, sanitizeIngestPayload, storeRelayListings } = require("../src/ingest");
 const { listingsApiPayload, publicListingView, shortDescription } = require("../src/api");
 const { __test: estateTest } = require("../src/estate");
+const { looksLikeListingPost, parseForwardedListing } = require("../src/forwarded");
 const { __test: listamFeedTest } = require("../src/listamFeed");
 const { __test: listamTest } = require("../src/listam");
 const { __test: myrealtyTest } = require("../src/myrealty");
@@ -27,10 +28,10 @@ async function main() {
   assert.equal(config.banaliPagesPerCategory, 5);
   assert.equal(config.listamQuickChallengeWaitSeconds, 1);
   assert.deepEqual(config.listamFeedUrls, []);
-  assert.match(renderYaml, /key: MYREALTY_PAGES_PER_CATEGORY\s*\n\s*value: "5"/);
+  assert.match(renderYaml, /key: MYREALTY_PAGES_PER_CATEGORY\s*\n\s*value: "7"/);
   assert.match(renderYaml, /key: ESTATE_FALLBACK_ENABLED\s*\n\s*value: "true"/);
   assert.match(renderYaml, /key: BANALI_FALLBACK_ENABLED\s*\n\s*value: "true"/);
-  assert.match(renderYaml, /key: BANALI_PAGES_PER_CATEGORY\s*\n\s*value: "5"/);
+  assert.match(renderYaml, /key: BANALI_PAGES_PER_CATEGORY\s*\n\s*value: "8"/);
   assert.match(renderYaml, /key: LISTAM_QUICK_CHALLENGE_MAX_SECONDS\s*\n\s*value: "8"/);
   assert.match(renderYaml, /key: LISTAM_FEED_URLS\s*\n\s*value: ""/);
   const state = readState(config);
@@ -48,8 +49,9 @@ async function main() {
   const commandsCall = fake.calls.find((call) => call.method === "setMyCommands");
   assert(commandsCall);
   const menuCommands = commandsCall.body.commands.map((entry) => entry.command);
-  assert(menuCommands.length <= 8, `menu must stay minimal, got ${menuCommands.length}`);
+  assert(menuCommands.length <= 9, `menu must stay minimal, got ${menuCommands.length}`);
   assert(menuCommands.includes("app"));
+  assert(menuCommands.includes("add"));
   assert(!menuCommands.includes("budget"), "manual filter commands must be hidden from the menu");
 
   const parsed = listamTest.parseItem(
@@ -332,6 +334,19 @@ async function main() {
   const withoutPhoto = { ...listing(940001, { location: "Avan" }), imageUrl: null };
   const keptPhoto = mergeListings([withPhoto], [withoutPhoto], config).find((item) => item.id === "940001");
   assert.equal(keptPhoto.imageUrl, "https://s.list.am/f/1/2.webp", "existing photo must survive a photo-less re-scan");
+
+  // Price drop is detected across scans and surfaced.
+  const priced0 = { ...listing(950001, { priceUsd: 100000, location: "Avan" }) };
+  const priced1 = { ...listing(950001, { priceUsd: 88000, location: "Avan" }) };
+  const dropped = mergeListings([priced0], [priced1], config).find((item) => item.id === "950001");
+  assert.equal(dropped.previousPriceUsd, 100000);
+  assert.equal(priceDropPercent(dropped), 12);
+  // A tiny drop below the threshold is ignored.
+  assert.equal(priceDropPercent({ previousPriceUsd: 100000, priceUsd: 99000 }), null);
+  // The drop marker survives a subsequent unchanged-price scan.
+  const stillDropped = mergeListings([dropped], [{ ...listing(950001, { priceUsd: 88000, location: "Avan" }) }], config).find((item) => item.id === "950001");
+  assert.equal(priceDropPercent(stillDropped), 12);
+  assert.match(telegramTest.listingLine(dropped), /цена снижена на 12%/);
 
   const mergedCache = mergeListings([banaliOriginal], [myrealtyCopy], config);
   const mergedCopy = mergedCache.find((item) => item.id === "myrealty:200");
@@ -684,6 +699,47 @@ async function main() {
 
   await handleTelegramUpdate(config, state, update("привет как пользоваться тобой?", 101));
   assert.match(fake.messages.at(-1).text, /бот для поиска недвижимости/i);
+
+  // Forwarded Facebook-group post ingest.
+  const fbPost = "Продается квартира в районе Аван, 2 комнаты, 68 кв.м, 5/9 этаж, с ремонтом. Цена $95000. Тел +374 91 234567";
+  assert.equal(looksLikeListingPost(fbPost), true);
+  assert.equal(looksLikeListingPost("дом до 120к без агентств"), false, "short filter requests are not treated as posts");
+  const fbListing = parseForwardedListing(fbPost, config, { fromId: 101, messageId: 5 });
+  assert.equal(fbListing.source, "facebook");
+  assert.equal(fbListing.kindKey, "apartment");
+  assert.equal(fbListing.priceUsd, 95000);
+  assert.equal(fbListing.areaSqm, 68);
+  assert.equal(fbListing.rooms, 2);
+  assert.equal(fbListing.location, "Avan");
+  assert.equal(fbListing.condition, "ready");
+  const amdPost = "Дом Зовуни, 4 комнаты, 140 кв.м, участок. 46 800 000 драм. Отличное состояние.";
+  const amdListing = parseForwardedListing(amdPost, config, { fromId: 101, messageId: 6 });
+  assert.equal(amdListing.kindKey, "house");
+  assert.equal(amdListing.location, "Zovuni");
+  assert(amdListing.priceUsd > 100000 && amdListing.priceUsd < 130000, `AMD converted, got ${amdListing.priceUsd}`);
+  assert.equal(parseForwardedListing("Просто болтовня без цены и без квартир", config, {}), null);
+
+  // Forwarding a post to the bot adds it to the catalog via the addListings hook.
+  const added = [];
+  await handleTelegramUpdate(
+    config,
+    state,
+    { ...update(fbPost, 101), message: { ...update(fbPost, 101).message, forward_date: 1 } },
+    { addListings: (items) => { added.push(...items); return true; } }
+  );
+  assert.equal(added.length, 1, "forwarded post must be handed to addListings");
+  assert.equal(added[0].source, "facebook");
+  assert.match(fake.messages.at(-1).text, /Добавил объявление в каталог/);
+
+  // /add command with inline text.
+  const addedViaCmd = [];
+  await handleTelegramUpdate(config, state, update("/add Квартира Нор Норк, 3 комнаты, 80 м², $110000, ремонт", 101), {
+    addListings: (items) => { addedViaCmd.push(...items); return true; },
+  });
+  assert.equal(addedViaCmd.length, 1);
+  assert.equal(addedViaCmd[0].location, "Nor Nork");
+  await handleTelegramUpdate(config, state, update("/add", 101), { addListings: () => true });
+  assert.match(fake.messages.at(-1).text, /перешл|Facebook/i);
 
   const compactFilterText = telegramTest.filtersText(config, {
     ...subscriber.filters,
