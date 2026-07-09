@@ -6,18 +6,27 @@ const { unique } = require("./utils");
 const MAX_API_LIMIT = 300;
 const DEFAULT_API_LIMIT = 120;
 
-// A short, human-ish blurb derived from the listing text — with phones, emails
-// and URLs stripped so we never surface contact/PII, and truncated for cards.
+// A short, human-ish blurb derived from the listing text — with phones, emails,
+// URLs and PII stripped, plus scraper noise (slug paths, snake_case codes,
+// "N sqm/rooms/floor" already shown on the card) removed, then truncated.
 function shortDescription(item) {
   let text = String(item.description || item.rawText || "")
     .replace(/https?:\/\/\S+/gi, " ")
     .replace(/\b[\w.+-]+@[\w-]+\.[\w.-]+\b/gi, " ")
     .replace(/(?:\+?\d[\d\s().-]{6,}\d)/g, " ")
+    .replace(/\S*\/\S*/g, " ") // slug paths like sell/apartment/3-rooms/-B48230
+    .replace(/\b\w+_\w[\w_]*\b/g, " ") // snake_case codes like heating_gas_boiler
+    .replace(/\b\d+(?:[.,]\d+)?\s*(?:sq\.?\s*m\.?|sqm|m²|м²|rooms?|room|комн\.?|эт\.?|floor)\b/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
   // Drop a leading price token ("$95,000" / "46,800,000 AMD") — the card already shows price.
   text = text.replace(/^[$֏€]?\s*[\d,.\s]+\s*(?:AMD|USD|Դ|\$|€|֏)?\s*[·,-]?\s*/i, "").trim();
-  if (text.length < 15) return null;
+  // Collapse immediate duplicate words (a district often repeats in scraped text).
+  text = text.replace(/\b([^\s,]+)(\s+\1\b)+/gi, "$1").trim();
+  text = text.replace(/^[\s,·-]+/, "").trim();
+  // Trim dangling conjunctions/commas left after removing a phone/email/url.
+  text = text.replace(/(?:[\s,·-]+(?:call|or|and|или|и|звони(?:те)?)\b)+[\s,·-]*$/i, "").replace(/[\s,·-]+$/, "").trim();
+  if (text.length < 12) return null;
   if (text.length <= 140) return text;
   const cut = text.slice(0, 140);
   const lastSpace = cut.lastIndexOf(" ");

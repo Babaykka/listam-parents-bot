@@ -536,8 +536,8 @@ async function main() {
   // Short description is derived from the listing text but must never leak PII.
   assert.equal(
     shortDescription({ rawText: "$95,000 newly renovated 2 room apartment near the park, call +374 91 234567 or owner@mail.ru https://list.am/item/1" }),
-    "newly renovated 2 room apartment near the park, call or",
-    "description must drop price, phone, email and URL"
+    "newly renovated apartment near the park",
+    "description must drop price, phone, email, URL and dangling conjunctions"
   );
   assert.equal(shortDescription({ rawText: "Avan" }), null, "too-short text yields no description");
   assert.equal(
