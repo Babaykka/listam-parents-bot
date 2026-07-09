@@ -335,7 +335,9 @@ async function runScanCycle(reason = "schedule") {
     );
 
     if (notifiableListings.length > 0) {
-      if (!config.sendInitial && oldSeen.size === 0 && previousBlockedStreak === 0) {
+      // An empty seen-set always means "first meaningful scan" — never blast the
+      // whole backlog, even if earlier scans were all blocked (blockedStreak>0).
+      if (!config.sendInitial && oldSeen.size === 0) {
         console.log(`[scan] first successful run initialized ${newListings.length} seen ids without sending old listings`);
       } else {
         await notifySubscribers(config, state, notifiableListings);
