@@ -276,8 +276,9 @@ function listingLine(item) {
 
 function chunkListings(title, listings, config) {
   const chunks = [];
-  for (let index = 0; index < listings.length; index += config.telegramBatchSize) {
-    const batch = listings.slice(index, index + config.telegramBatchSize);
+  const batchSize = Math.max(1, Number(config.telegramBatchSize) || 6);
+  for (let index = 0; index < listings.length; index += batchSize) {
+    const batch = listings.slice(index, index + batchSize);
     const range =
       listings.length > batch.length
         ? `Показаны ${index + 1}-${index + batch.length} из ${listings.length}`
@@ -1248,6 +1249,7 @@ async function handleCommand(config, state, message, hooks = {}) {
   }
 
   if (command === "/start" || command === "/subscribe") {
+    subscriber.active = true;
     await sendMessage(
       config,
       chat.id,

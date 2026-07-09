@@ -124,7 +124,8 @@ function upsertSubscriber(config, state, chat, from) {
   };
 
   if (existing) {
-    existing.active = true;
+    // Preserve active: a user who ran /stop must stay unsubscribed even if they
+    // keep using read-only commands. Only /start reactivates (explicitly).
     existing.type = base.type;
     existing.title = base.title;
     existing.username = base.username;

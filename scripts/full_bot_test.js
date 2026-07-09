@@ -849,8 +849,15 @@ async function main() {
 
   await handleTelegramUpdate(config, state, update("/stop", 101));
   assert.equal(state.subscribers.find((item) => String(item.id) === "101").active, false);
+  // A stopped user browsing with read-only commands must stay unsubscribed.
+  await handleTelegramUpdate(config, state, update("/status", 101));
+  await handleTelegramUpdate(config, state, update("/latest", 101));
+  assert.equal(state.subscribers.find((item) => String(item.id) === "101").active, false, "/stop must stick until /start");
   await handleTelegramUpdate(config, state, update("/start", 101));
   assert.equal(state.subscribers.find((item) => String(item.id) === "101").active, true);
+
+  // chunkListings must not infinite-loop if batch size is misconfigured to 0.
+  assert.equal(telegramTest.chunkListings("t", [listing(1), listing(2)], { ...config, telegramBatchSize: 0 }).length, 1);
 
   await handleTelegramUpdate(config, state, update("/start", 202));
   state.subscribers.find((item) => String(item.id) === "202").filters = {
