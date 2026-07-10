@@ -11,6 +11,7 @@ const { computeBaselines, explainListing, valueScore } = require("../src/ranking
 const { coreSourcesDown, isSourceDegraded, mergedSourceEntries, sourceStatusEntries, updateSourceHealth } = require("../src/sourceHealth");
 const { relayFallbackResult, sanitizeIngestPayload, storeRelayListings } = require("../src/ingest");
 const { listingsApiPayload, publicListingView, shortDescription } = require("../src/api");
+const { localizeDescription } = require("../src/localize");
 const { __test: estateTest } = require("../src/estate");
 const { looksLikeListingPost, parseForwardedListing } = require("../src/forwarded");
 const { extractOgImage, isBackfillEligible } = require("../src/imageBackfill");
@@ -585,12 +586,17 @@ async function main() {
   assert.equal(apiView.contactName, "Ани");
   assert.equal(apiView.contactPhone, "+374 10 111222");
 
-  // Short description is derived from the listing text but must never leak PII.
+  // English source blurbs are rendered in Russian and never leak PII.
+  const localizedDesc = shortDescription({ rawText: "$95,000 newly renovated 2 room apartment near the park, call +374 91 234567 or owner@mail.ru https://list.am/item/1" });
+  assert.match(localizedDesc, /ремонт/i, "English blurb must be localized to Russian");
+  assert.doesNotMatch(localizedDesc, /\+?374|@|https?:|\$|newly|apartment/i, "localized description must never leak price/phone/email/URL or English");
+  // The List.am agency/street pattern from the screenshot → clean Russian.
   assert.equal(
-    shortDescription({ rawText: "$95,000 newly renovated 2 room apartment near the park, call +374 91 234567 or owner@mail.ru https://list.am/item/1" }),
-    "newly renovated apartment near the park",
-    "description must drop price, phone, email, URL and dangling conjunctions"
+    localizeDescription("Agency apartment on Zoravar Andranik Street in Malatia-Sebastia, Malatia-Sebastia"),
+    "От агентства · ул. Zoravar Andranik",
+    "List.am agency blurb becomes a Russian description"
   );
+  assert.equal(localizeDescription("Квартира с ремонтом"), "", "already-Russian text defers to the normal cleanup");
   assert.equal(shortDescription({ rawText: "Avan" }), null, "too-short text yields no description");
   assert.equal(
     shortDescription({ description: "Просторная светлая квартира с новым ремонтом и мебелью в тихом районе рядом со школой и супермаркетом, есть парковка и кладовая комната для хранения вещей жильцов" }).endsWith("…"),

@@ -1,6 +1,7 @@
 const { compareListingActivity, daysSince } = require("./listingFreshness");
 const { priceDropPercent, visibleListings } = require("./listingStore");
 const { mergedSourceEntries } = require("./sourceHealth");
+const { localizeDescription } = require("./localize");
 const { unique } = require("./utils");
 
 const MAX_API_LIMIT = 300;
@@ -10,6 +11,10 @@ const DEFAULT_API_LIMIT = 120;
 // URLs and PII stripped, plus scraper noise (slug paths, snake_case codes,
 // "N sqm/rooms/floor" already shown on the card) removed, then truncated.
 function shortDescription(item) {
+  // Sources emit English blurbs; render them as a short Russian description.
+  const localized = localizeDescription(String(item.description || item.rawText || ""));
+  if (localized) return localized;
+
   let text = String(item.description || item.rawText || "")
     .replace(/https?:\/\/\S+/gi, " ")
     .replace(/\b[\w.+-]+@[\w-]+\.[\w.-]+\b/gi, " ")
