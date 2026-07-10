@@ -658,18 +658,23 @@ function shortFiltersText(config, rawFilters) {
 }
 
 function sourceStatusLine(entry) {
-  if (entry.degraded) {
+  const catalog = Number(entry.catalogListings ?? entry.listings ?? 0);
+  const scanned = Number(entry.lastScanListings ?? entry.listings ?? 0);
+  const lastSuccess = relativeTimeText(entry.lastSuccessAt);
+  if (entry.degraded || entry.stale) {
     const error = entry.lastError ? ` (${entry.lastError})` : "";
-    return `⚠️ ${entry.label} — временно недоступен${error}, бот пробует снова автоматически`;
+    const cached = catalog > 0 ? `в каталоге ${listingsCountText(catalog)}; ` : "";
+    const last = lastSuccess ? `, последнее обновление ${lastSuccess}` : "";
+    return `⚠️ ${entry.label} — ${cached}свежие данные не получены${last}${error}`;
   }
   if (entry.blocked) {
-    return `⚠️ ${entry.label} — сайт показывает проверку браузера, бот пробует снова автоматически`;
+    return `⚠️ ${entry.label} — в каталоге ${listingsCountText(catalog)}; сайт показывает проверку браузера`;
   }
   if (entry.lastError) {
     return `⚠️ ${entry.label} — ошибка: ${entry.lastError}`;
   }
   const duration = entry.durationMs ? ` за ${Math.max(1, Math.round(entry.durationMs / 1000))}с` : "";
-  return `✅ ${entry.label} — ${listingsCountText(entry.listings)}${duration}`;
+  return `✅ ${entry.label} — в каталоге ${listingsCountText(catalog)} · последний проход ${listingsCountText(scanned)}${duration}`;
 }
 
 function statusText(config, state) {
@@ -682,7 +687,7 @@ function statusText(config, state) {
     const when = relativeTimeText(state.lastScan.at);
     const summary = state.lastScan.error
       ? `закончилась ошибкой: ${state.lastScan.error}`
-      : `нашла ${listingsCountText(Number(state.lastScan.scanned || 0))}, новых для рассылки: ${Number(state.lastScan.new || 0)}`;
+      : `нашла ${listingsCountText(Number(state.lastScan.scanned || 0))}, новых в каталоге: ${Number(state.lastScan.new || 0)}`;
     lines.push(`Последняя проверка ${when ? `${when} ` : ""}${summary}.`);
   } else {
     lines.push("Первая проверка ещё не выполнялась.");

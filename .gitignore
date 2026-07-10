@@ -6,3 +6,10 @@ npm-debug.log*
 listam-playwright-check.png
 *.log
 .claude/
+.playwright-cli/
+output/playwright/
+browser-state/
+exports/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal

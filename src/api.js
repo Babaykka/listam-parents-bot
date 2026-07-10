@@ -136,6 +136,10 @@ function listingsApiPayload(state, config, query = {}, now = new Date()) {
     sources: mergedSourceEntries(state).map((entry) => ({
       label: entry.label,
       listings: entry.listings,
+      catalogListings: entry.catalogListings ?? entry.listings,
+      lastScanListings: entry.lastScanListings ?? entry.listings,
+      lastSuccessAt: entry.lastSuccessAt || null,
+      stale: Boolean(entry.stale),
       ok: !entry.degraded && !entry.blocked && !entry.lastError,
     })),
     listings: filtered.slice(0, limit).map(publicListingView),

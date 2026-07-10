@@ -165,6 +165,8 @@ function loadConfig() {
     myrealtyPagesPerCategory: envNumber("MYREALTY_PAGES_PER_CATEGORY", 5),
     estateFallbackEnabled: envBool("ESTATE_FALLBACK_ENABLED", true),
     estateFeedUrls: envList("ESTATE_FEED_URLS", []),
+    estateCollectAll: envBool("ESTATE_COLLECT_ALL", true),
+    estateDelayMs: envNumber("ESTATE_DELAY_MS", 10000),
     banaliFallbackEnabled: envBool("BANALI_FALLBACK_ENABLED", true),
     banaliPagesPerCategory: envNumber("BANALI_PAGES_PER_CATEGORY", 5),
     banaliConcurrency: envNumber("BANALI_CONCURRENCY", 4),

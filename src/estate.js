@@ -1,5 +1,5 @@
 const crypto = require("crypto");
-const { clamp, normalizeText, unique } = require("./utils");
+const { clamp, normalizeText, sleep, unique } = require("./utils");
 const { compareListingActivity } = require("./listingFreshness");
 
 const BASE_URL = "https://www.estate.am";
@@ -227,11 +227,14 @@ function parseEntry(entry, config) {
   if (!config.categories.some((category) => category.key === kindKey)) return null;
 
   const price = parsePrice(title, summary, config);
-  if (!price || !price.priceUsd || price.priceUsd > config.maxPriceUsd || price.priceUsd < config.minPriceUsd) return null;
+  if (!price || !price.priceUsd) return null;
+  if (!config.estateCollectAll && (price.priceUsd > config.maxPriceUsd || price.priceUsd < config.minPriceUsd)) return null;
 
   const location = parseLocation(`${title} ${summary}`, config);
-  if (config.requireKnownLocation && !location) return null;
-  if (location && !(location in config.minutesToCenter)) return null;
+  if (!config.estateCollectAll) {
+    if (config.requireKnownLocation && !location) return null;
+    if (location && !(location in config.minutesToCenter)) return null;
+  }
 
   const areaSqm = parseAreaSqm(summary) || parseAreaSqm(content);
   const rooms = parseRooms(title) || parseRooms(summary) || parseRooms(content);
@@ -323,7 +326,12 @@ async function scanEstate(config, logger = console) {
   const listings = [];
   const skipped = [];
 
-  for (const url of feedUrls(config)) {
+  const urls = feedUrls(config);
+  for (let index = 0; index < urls.length; index += 1) {
+    const url = urls[index];
+    if (index > 0 && Number(config.estateDelayMs || 0) > 0) {
+      await sleep(Number(config.estateDelayMs));
+    }
     logger.log(`[estate] feed ${url}`);
     try {
       const xml = await fetchText(url, config);

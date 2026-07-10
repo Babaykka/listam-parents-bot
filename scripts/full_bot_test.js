@@ -216,6 +216,25 @@ async function main() {
   assert.equal(telegramTest.listingUrl(estateCard), "https://www.estate.am/en/3-rooms-apartment-sale-in-zovuni-d122999");
   assert.match(telegramTest.listingLine(estateCard), /Estate\.am/);
   assert.match(telegramTest.listingDateDetail(estateCard), /обновлено 01\.07\.2026/);
+  const expensiveEstateXml = `
+      <id>https://www.estate.am/en/apartment-d123000</id>
+      <title>Apartment, 3 room, Arabkir, Yerevan - 300,000 $</title>
+      <updated>2026-07-01T10:15:00+04:00</updated>
+      <link rel="alternate" href="https://www.estate.am/en/apartment-d123000"/>
+      <summary>Yerevan, Arabkir, 90 m2, floor 3/9, 3 room, 300,000 $</summary>
+    `;
+  const expensiveEstate = estateTest.parseEntry(expensiveEstateXml, { ...config, estateCollectAll: true });
+  assert(expensiveEstate, "complete Estate RSS mode keeps listings above the default subscriber budget");
+  assert.equal(
+    telegramTest.matchesSubscriber(config, { filters: {} }, expensiveEstate),
+    false,
+    "subscriber budget still filters an expensive listing after collection"
+  );
+  assert.equal(
+    estateTest.parseEntry(expensiveEstateXml, { ...config, estateCollectAll: false }),
+    null,
+    "legacy filtered mode still enforces the scanner budget"
+  );
 
   const banaliHouse = banaliTest.parsePost(
     {
@@ -456,8 +475,8 @@ async function main() {
   });
   assert.equal(blockedNoRelay.find((entry) => entry.source === "listam").degraded, true, "without any List.am data the source is honestly degraded");
 
-  // Direct scan blocked and relay data expired, but List.am listings are still
-  // browsable in the catalog → show them, not "идёт проверка".
+  // Direct scan blocked and relay data expired: cached cards remain browsable,
+  // but status must say that fresh data is unavailable.
   const blockedButCached = mergedSourceEntries({
     listings: [
       { id: "23000001", source: "listam", url: "https://www.list.am/item/23000001" },
@@ -468,7 +487,8 @@ async function main() {
     scanHealth: { sources: { listam: { failStreak: 40, lastError: "проверка браузера" } } },
   });
   const listamCached = blockedButCached.find((entry) => entry.source === "listam");
-  assert.equal(listamCached.degraded, false, "browsable cached List.am listings mean the source is working for users");
+  assert.equal(listamCached.degraded, true, "cached List.am cards must not hide a stale source");
+  assert.equal(listamCached.stale, true);
   assert.equal(listamCached.listings, 2);
   assert.equal(estateTest.alternateHostUrl("https://www.estate.am/en/feed.rss"), "https://estate.am/en/feed.rss");
   assert.equal(estateTest.alternateHostUrl("https://estate.am/en/feed.rss"), "https://www.estate.am/en/feed.rss");
@@ -570,6 +590,8 @@ async function main() {
   assert(apiPayload.total >= 5);
   const banaliSourceView = apiPayload.sources.find((entry) => entry.label === "Banali.am");
   assert(banaliSourceView && banaliSourceView.ok, "Banali source present and healthy");
+  assert.equal(banaliSourceView.lastScanListings, 5);
+  assert.equal(banaliSourceView.catalogListings, banaliSourceView.listings);
   assert.equal(apiPayload.sources[0].label, "List.am", "List.am is listed first when the catalog has List.am offers");
   assert(apiPayload.locations.includes("Avan"));
   assert.doesNotMatch(JSON.stringify(apiPayload), /subscribers|secret|rawText/, "public API must not leak subscriber data or raw text");
@@ -920,9 +942,10 @@ async function main() {
 
   await handleTelegramUpdate(config, state, update("/status", 101));
   assert.match(fake.messages.at(-1).text, /Бот работает/);
-  // Catalog has browsable List.am listings, so the status shows it working.
-  assert.match(fake.messages.at(-1).text, /✅ List\.am/);
-  assert.doesNotMatch(fake.messages.at(-1).text, /List\.am —.*недоступ|List\.am.*идёт проверка/);
+  // Cached cards remain available, but without a current successful scan the
+  // status must not imply that List.am is updating normally.
+  assert.match(fake.messages.at(-1).text, /⚠️ List\.am/);
+  assert.match(fake.messages.at(-1).text, /в каталоге 3 объявления; свежие данные не получены/);
 
   config.publicUrl = "https://listam-parents-bot.onrender.com";
   await handleTelegramUpdate(config, state, update("/app", 101));

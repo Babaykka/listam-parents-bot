@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <id>https://www.estate.am/en/apartments-for-sale-in-yerevan-s12.rss</id>
+  <title><![CDATA[Estate.am - Apartments for sale]]></title>
+  <updated>2026-07-10T19:44:41+04:00</updated>
+  <entry>
+    <id>http://www.estate.am/en/3-rooms-apartment-for-sale-in-arabkir-yerevan-d120001</id>
+    <title><![CDATA[Apartment, 3 room, Arabkir, Yerevan - 120,000 $]]></title>
+    <updated>2026-07-09T12:15:00+04:00</updated>
+    <link rel="alternate" href="http://www.estate.am/en/3-rooms-apartment-for-sale-in-arabkir-yerevan-d120001"/>
+    <summary><![CDATA[Yerevan, Arabkir, Komitas Ave., 75 m2, floor 4/9, 3 room, 120,000 $]]></summary>
+    <content type="html"><![CDATA[Renovated and furnished apartment with elevator, balcony and parking.]]></content>
+    <link rel="enclosure" href="https://pic.estate.am/image/example-1.jpg" type="image/jpeg"/>
+  </entry>
+  <entry>
+    <id>http://www.estate.am/en/2-rooms-apartment-for-sale-in-center-yerevan-d120002</id>
+    <title><![CDATA[Apartment, 2 room, Center, Yerevan - 95,000 EUR]]></title>
+    <updated>2026-07-08T10:00:00+04:00</updated>
+    <link rel="alternate" href="http://www.estate.am/en/2-rooms-apartment-for-sale-in-center-yerevan-d120002"/>
+    <summary><![CDATA[Yerevan, Center, Mashtots Ave., 62.5 m2, floor 2/5, 2 room, 95,000 EUR]]></summary>
+    <content type="html"><![CDATA[Apartment needs renovation.]]></content>
+  </entry>
+</feed>

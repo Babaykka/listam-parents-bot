@@ -1,0 +1,88 @@
+{
+  "database_path": "data/realestate.sqlite",
+  "cache_directory": "data/aggregator-cache",
+  "export_directory": "exports",
+  "defaults": {
+    "timeout_ms": 20000,
+    "retries": 2,
+    "max_pages": 5,
+    "max_records": 500,
+    "cache_ttl_ms": 300000,
+    "deleted_after_complete_runs": 3
+  },
+  "sources": {
+    "list_am": {
+      "source_type": "website",
+      "base_url": "https://www.list.am/",
+      "allowed_domains": ["list.am", "www.list.am"],
+      "status": "not_permitted",
+      "access_method": "none",
+      "terms_url": "https://www.list.am/en/help/14",
+      "robots_url": "https://www.list.am/robots.txt",
+      "reason": "The published terms prohibit copying or storing site content and prohibit automated access."
+    },
+    "banali_am": {
+      "source_type": "website",
+      "base_url": "https://banali.am/",
+      "allowed_domains": ["banali.am", "www.banali.am"],
+      "status": "not_permitted",
+      "access_method": "none",
+      "terms_url": "https://banali.am/terms-conditions",
+      "robots_url": "https://banali.am/robots.txt",
+      "reason": "The published terms reserve copying, reproduction, publication, and use of site information without consent. Written permission is required before automated storage."
+    },
+    "myrealty_am": {
+      "source_type": "website",
+      "base_url": "https://myrealty.am/",
+      "allowed_domains": ["myrealty.am", "www.myrealty.am"],
+      "status": "not_permitted",
+      "access_method": "none",
+      "terms_url": "https://myrealty.am/en/conditions",
+      "robots_url": "https://myrealty.am/robots.txt",
+      "reason": "The published terms prohibit copying or storing content and explicitly prohibit automated programs."
+    },
+    "estate_am": {
+      "source_type": "website",
+      "base_url": "https://www.estate.am/",
+      "allowed_domains": ["estate.am", "www.estate.am"],
+      "status": "partially_supported",
+      "access_method": "official_rss",
+      "robots_url": "https://www.estate.am/robots.txt",
+      "delay_ms": 10000,
+      "supports_complete_snapshot": false,
+      "feeds": [
+        {
+          "url": "https://www.estate.am/en/apartments-for-sale-in-yerevan-s12.rss",
+          "operation_type": "sale",
+          "property_type": "apartment"
+        },
+        {
+          "url": "https://www.estate.am/en/houses-and-villas-for-sale-in-yerevan-s687.rss",
+          "operation_type": "sale",
+          "property_type": "house"
+        },
+        {
+          "url": "https://www.estate.am/en/apartments-rentals-s826.rss",
+          "operation_type": "long_term_rent",
+          "property_type": "apartment"
+        },
+        {
+          "url": "https://www.estate.am/en/houses-and-villas-rentals-in-yerevan-s1792.rss",
+          "operation_type": "long_term_rent",
+          "property_type": "house"
+        }
+      ],
+      "reason": "Only the site's official Atom/RSS exports are collected. Detail pages are not copied. RSS does not represent a complete inventory."
+    },
+    "facebook_groups": {
+      "source_type": "facebook_group",
+      "base_url": "https://www.facebook.com/",
+      "allowed_domains": ["facebook.com", "www.facebook.com", "m.facebook.com"],
+      "status": "partially_supported",
+      "access_method": "permitted_file_import",
+      "groups_config": "config/facebook-groups.json",
+      "supports_complete_snapshot": false,
+      "reason": "Live automated collection requires Meta's express written permission. The adapter accepts a user-provided, lawfully obtained JSONL or CSV export instead."
+    }
+  }
+}

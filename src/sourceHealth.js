@@ -64,16 +64,24 @@ function sourceStatusEntries(state, options = {}) {
 
   return Array.from(names).map((source) => {
     const health = sources[source] || {};
-    const scan = lastScanSources.find((item) => item.source === source) || {};
+    const currentScan = lastScanSources.find((item) => item.source === source);
+    const scan = currentScan || {};
+    const catalogListings = (state.listings || []).filter(
+      (item) => !item.duplicateOf && item.source === source
+    ).length;
+    const lastScanListings = Number(scan.listings ?? health.lastListings ?? 0);
     return {
       source,
       label: sourceLabel(source),
-      listings: Number(scan.listings ?? health.lastListings ?? 0),
+      listings: catalogListings || lastScanListings,
+      catalogListings,
+      lastScanListings,
       durationMs: scan.durationMs ?? health.lastDurationMs ?? null,
       blocked: Boolean(scan.blocked),
       probeMode: scan.probeMode || null,
       failStreak: Number(health.failStreak || 0),
       degraded: Number(health.failStreak || 0) >= DEGRADED_AFTER_FAILS,
+      stale: !currentScan && catalogListings > 0,
       lastError: health.lastError || scan.error || null,
       lastSuccessAt: health.lastSuccessAt || null,
     };
@@ -94,28 +102,41 @@ function isListamListing(item) {
 // next to 67 real, listable List.am offers.
 function mergedSourceEntries(state) {
   const entries = sourceStatusEntries(state);
-  const family = entries.filter((entry) => LISTAM_FAMILY.includes(entry.source));
+  const allEntries = sourceStatusEntries(state, { all: true });
+  const family = allEntries.filter((entry) => LISTAM_FAMILY.includes(entry.source));
   const others = entries.filter((entry) => !LISTAM_FAMILY.includes(entry.source));
 
   const catalogCount = (state.listings || []).filter((item) => !item.duplicateOf && isListamListing(item)).length;
 
   const merged = [];
   if (family.length > 0 || catalogCount > 0) {
-    const scanCount = family.reduce((sum, entry) => sum + Number(entry.listings || 0), 0);
-    const working =
-      catalogCount > 0 ||
-      family.some((entry) => Number(entry.listings || 0) > 0 && !entry.degraded && !entry.blocked && !entry.lastError);
+    const currentFamily = (state.lastScan?.sources || []).filter((entry) => LISTAM_FAMILY.includes(entry.source));
+    const scanCount = currentFamily.reduce((sum, entry) => sum + Number(entry.listings || 0), 0);
+    const working = currentFamily.some(
+      (entry) => Number(entry.listings || 0) > 0 && !entry.blocked && !entry.error
+    );
+    const direct = family.find((entry) => entry.source === "listam") || {};
+    const relayReceivedAt = state.relay?.listam?.receivedAt || null;
+    const successTimes = family
+      .filter((entry) => entry.source !== "listam_relay" || !relayReceivedAt)
+      .map((entry) => entry.lastSuccessAt)
+      .concat(relayReceivedAt)
+      .filter(Boolean)
+      .sort();
     merged.push({
       source: "listam",
       label: "List.am",
-      listings: Math.max(catalogCount, scanCount),
+      listings: catalogCount || scanCount,
+      catalogListings: catalogCount,
+      lastScanListings: scanCount,
       durationMs: null,
-      blocked: false,
-      probeMode: null,
-      failStreak: working ? 0 : Number(family.find((entry) => entry.source === "listam")?.failStreak || 0),
+      blocked: Boolean(direct.blocked) && !working,
+      probeMode: direct.probeMode || null,
+      failStreak: working ? 0 : Number(direct.failStreak || 0),
       degraded: !working,
-      lastError: null,
-      lastSuccessAt: family.map((entry) => entry.lastSuccessAt).filter(Boolean).sort().pop() || null,
+      stale: !working && catalogCount > 0,
+      lastError: working ? null : direct.lastError || (direct.blocked ? "проверка браузера" : "нет свежих данных"),
+      lastSuccessAt: successTimes.pop() || null,
     });
   }
 

@@ -69,6 +69,10 @@ services:
         value: "7"
       - key: ESTATE_FALLBACK_ENABLED
         value: "true"
+      - key: ESTATE_COLLECT_ALL
+        value: "true"
+      - key: ESTATE_DELAY_MS
+        value: "10000"
       - key: BANALI_FALLBACK_ENABLED
         value: "true"
       - key: BANALI_PAGES_PER_CATEGORY
