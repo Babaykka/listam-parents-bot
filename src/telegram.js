@@ -151,6 +151,17 @@ function whyGoodLine(item) {
   return escapeHtml(`Почему интересно: ${item.whyGood.join("; ")}`);
 }
 
+function contactLine(item) {
+  const name = item.contactName ? String(item.contactName) : "";
+  const phone = item.contactPhone ? String(item.contactPhone) : "";
+  if (!name && !phone) return null;
+  const who = [name, phone].filter(Boolean).map((part) => escapeHtml(part)).join(", ");
+  if (!phone) return `Контакт: ${who}`;
+  const telHref = `tel:${phone.replace(/[^\d+]/g, "")}`;
+  const label = name ? `${escapeHtml(name)}, ${escapeHtml(phone)}` : escapeHtml(phone);
+  return `Контакт: <a href="${escapeHtml(telHref)}">${label}</a>`;
+}
+
 function conditionLabel(value) {
   return (
     {
@@ -271,6 +282,7 @@ function listingLine(item) {
     listingDateDetail(item) ? escapeHtml(`Дата: ${listingDateDetail(item)}`) : null,
     sourceLabel(item) ? escapeHtml(`Источник: ${sourceLabel(item)}`) : null,
     item.alsoSources?.length ? escapeHtml(`Также на: ${item.alsoSources.map((entry) => entry.label).join(", ")}`) : null,
+    contactLine(item),
     `<a href="${escapeHtml(listingUrl(item))}">Открыть объявление</a>`,
   ]
     .filter(Boolean)
@@ -1616,8 +1628,28 @@ async function handleCommand(config, state, message, hooks = {}) {
   return false;
 }
 
+function forwardOriginName(message) {
+  const origin = message.forward_origin;
+  if (origin) {
+    if (origin.type === "user" && origin.sender_user) {
+      return normalizeText([origin.sender_user.first_name, origin.sender_user.last_name].filter(Boolean).join(" "));
+    }
+    if (origin.type === "hidden_user") return normalizeText(origin.sender_user_name || "");
+    if (origin.type === "chat" && origin.sender_chat) return normalizeText(origin.sender_chat.title || "");
+    if (origin.type === "channel" && origin.chat) return normalizeText(origin.chat.title || "");
+  }
+  if (message.forward_from) return normalizeText([message.forward_from.first_name, message.forward_from.last_name].filter(Boolean).join(" "));
+  if (message.forward_from_chat) return normalizeText(message.forward_from_chat.title || "");
+  if (message.forward_sender_name) return normalizeText(message.forward_sender_name);
+  return "";
+}
+
 async function handleForwardedListing(config, state, chat, message, text, hooks = {}) {
-  const item = parseForwardedListing(text, config, { fromId: chat.id, messageId: message.message_id });
+  const item = parseForwardedListing(text, config, {
+    fromId: chat.id,
+    messageId: message.message_id,
+    contactName: forwardOriginName(message),
+  });
   if (!item) return false;
 
   const added = await Promise.resolve(hooks.addListings?.([item], { chatId: chat.id })).catch((error) => {

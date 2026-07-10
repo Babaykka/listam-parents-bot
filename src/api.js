@@ -65,6 +65,8 @@ function publicListingView(item) {
     whyGood: item.whyGood || [],
     valueScore: item.valueScore ?? null,
     priceDropPercent: priceDropPercent(item),
+    contactName: item.contactName || null,
+    contactPhone: item.contactPhone || null,
   };
 }
 

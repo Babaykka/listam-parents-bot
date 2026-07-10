@@ -73,6 +73,8 @@ function sanitizeIngestListing(raw, config) {
     rawText: cleanString(raw.rawText, 1200),
     qualityScore: cleanNumber(raw.qualityScore, 0, 10) ?? 5,
     scannedAt: cleanIsoDate(raw.scannedAt) || new Date().toISOString(),
+    contactName: cleanString(raw.contactName, 40) || null,
+    contactPhone: cleanString(raw.contactPhone, 40) || null,
   };
 }
 

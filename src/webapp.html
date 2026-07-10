@@ -138,6 +138,8 @@
   .row2 { margin-top: 3px; font-size: 14.5px; }
   .desc { margin-top: 5px; font-size: 13px; color: var(--text-2); line-height: 1.4; }
   .row3 { margin-top: 5px; color: var(--text-2); font-size: 13px; display: flex; flex-wrap: wrap; gap: 4px 10px; }
+  .contact { margin-top: 6px; font-size: 13.5px; color: var(--text); }
+  .contact-phone { color: var(--accent); font-weight: 600; text-decoration: underline; }
   .fav {
     position: absolute; top: 8px; right: 8px; z-index: 2;
     width: 34px; height: 34px; border: none; border-radius: 999px;
@@ -290,6 +292,17 @@
     return arr; // "fresh" keeps the server's newest-first order
   }
 
+  function contactHtml(item) {
+    if (!item.contactName && !item.contactPhone) return "";
+    var parts = [];
+    if (item.contactName) parts.push('<span>' + esc(item.contactName) + "</span>");
+    if (item.contactPhone) {
+      var tel = String(item.contactPhone).replace(/[^\d+]/g, "");
+      parts.push('<span class="contact-phone" data-tel="' + esc(tel) + '">' + esc(item.contactPhone) + "</span>");
+    }
+    return '<div class="contact">📞 ' + parts.join(" · ") + "</div>";
+  }
+
   function isFresh(item) {
     var t = Date.parse(item.publishedAt || 0);
     var u = Date.parse(item.updatedAt || 0);
@@ -331,6 +344,7 @@
       + "</div>"
       + (title ? '<div class="row2">' + esc(title) + "</div>" : "")
       + (item.description ? '<div class="desc">' + esc(item.description) + "</div>" : "")
+      + contactHtml(item)
       + '<div class="row3">' + metaBits.map(function (b) { return "<span>" + esc(b) + "</span>"; }).join("") + "</div>"
       + (item.whyGood && item.whyGood.length >= 2 ? '<div class="why">' + esc("Почему интересно: " + item.whyGood.join("; ")) + "</div>" : "")
       + '<div class="row4"><span>' + esc(when) + '</span><span class="badge">' + src + "</span></div>"
@@ -424,8 +438,17 @@
   $("priceSel").addEventListener("change", function () { state.maxPrice = Number(this.value) || 0; this.classList.toggle("on", !!this.value); render(true); });
   $("more").addEventListener("click", function () { render(false); });
 
-  // Tapping the heart toggles a favourite without following the card link.
+  // Tapping the heart toggles a favourite; tapping the phone calls — both
+  // without following the card link to the source listing.
   $("cards").addEventListener("click", function (event) {
+    var phone = event.target.closest(".contact-phone");
+    if (phone) {
+      event.preventDefault();
+      event.stopPropagation();
+      var tel = phone.getAttribute("data-tel");
+      if (tel) window.location.href = "tel:" + tel;
+      return;
+    }
     var fav = event.target.closest(".fav");
     if (!fav) return;
     event.preventDefault();

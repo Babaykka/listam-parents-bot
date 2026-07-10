@@ -564,11 +564,13 @@ async function main() {
   assert(apartmentsOnly.listings.every((item) => item.kindKey === "apartment" && item.areaSqm >= 70 && item.priceUsd <= 100000));
   assert.equal(apartmentsOnly.listings[0].id, "r1", "value sort must put the bargain first");
   assert.equal(listingsApiPayload(apiState, config, { limit: 2 }, rankingNow).listings.length, 2);
-  const apiView = publicListingView({ ...banaliOriginal, rawText: "secret raw", imageUrl: "https://banali.am/storage/x.jpg", floor: { current: 2, total: 9, label: "2/9" } });
+  const apiView = publicListingView({ ...banaliOriginal, rawText: "secret raw", imageUrl: "https://banali.am/storage/x.jpg", floor: { current: 2, total: 9, label: "2/9" }, contactName: "Ани", contactPhone: "+374 10 111222" });
   assert.equal(apiView.rawText, undefined);
   assert.equal(apiView.floorLabel, "2/9");
   assert.equal(apiView.sourceLabel, "Banali.am");
   assert.equal(apiView.imageUrl, "https://banali.am/storage/x.jpg");
+  assert.equal(apiView.contactName, "Ани");
+  assert.equal(apiView.contactPhone, "+374 10 111222");
 
   // Short description is derived from the listing text but must never leak PII.
   assert.equal(
@@ -593,6 +595,8 @@ async function main() {
   assert.match(webappHtml, /data-fav-id/, "cards carry a favorite toggle");
   assert.match(webappHtml, /id="sortSel"/, "catalog has a sort control");
   assert.match(webappHtml, /class="desc"/, "cards render a short description");
+  assert.match(webappHtml, /id="search"/, "catalog has a search box");
+  assert.match(webappHtml, /contact-phone/, "cards render a tappable contact phone");
 
   await handleTelegramUpdate(config, state, update("/start", 101));
   assert.equal(activeSubscribers(state, config).length, 1);
@@ -712,6 +716,15 @@ async function main() {
   assert.equal(fbListing.rooms, 2);
   assert.equal(fbListing.location, "Avan");
   assert.equal(fbListing.condition, "ready");
+  assert.equal(fbListing.contactPhone, "+374 91 234567", "phone must be parsed from the post");
+  // Name comes from the Telegram forward header when present.
+  const fbWithName = parseForwardedListing(fbPost, config, { fromId: 101, messageId: 7, contactName: "Армен Петросян" });
+  assert.equal(fbWithName.contactName, "Армен Петросян");
+  assert.match(telegramTest.listingLine(fbWithName), /Контакт: <a href="tel:\+37491234567">Армен Петросян, \+374 91 234567<\/a>/);
+  // Name from a labelled line in the text when no forward header.
+  const labelled = parseForwardedListing("Квартира Аван, 70 кв.м, $90000. Контакт: Гагик, 091 445566", config, { fromId: 101, messageId: 8 });
+  assert.equal(labelled.contactName, "Гагик");
+  assert.equal(labelled.contactPhone, "+374 91 445566");
   const amdPost = "Дом Зовуни, 4 комнаты, 140 кв.м, участок. 46 800 000 драм. Отличное состояние.";
   const amdListing = parseForwardedListing(amdPost, config, { fromId: 101, messageId: 6 });
   assert.equal(amdListing.kindKey, "house");
@@ -719,17 +732,19 @@ async function main() {
   assert(amdListing.priceUsd > 100000 && amdListing.priceUsd < 130000, `AMD converted, got ${amdListing.priceUsd}`);
   assert.equal(parseForwardedListing("Просто болтовня без цены и без квартир", config, {}), null);
 
-  // Forwarding a post to the bot adds it to the catalog via the addListings hook.
+  // Forwarding a post to the bot adds it to the catalog via the addListings hook,
+  // taking the contact name from the Telegram forward header.
   const added = [];
-  await handleTelegramUpdate(
-    config,
-    state,
-    { ...update(fbPost, 101), message: { ...update(fbPost, 101).message, forward_date: 1 } },
-    { addListings: (items) => { added.push(...items); return true; } }
-  );
+  const fwdUpdate = update(fbPost, 101);
+  fwdUpdate.message.forward_date = 1;
+  fwdUpdate.message.forward_from = { first_name: "Сурен", last_name: "Акопян" };
+  await handleTelegramUpdate(config, state, fwdUpdate, { addListings: (items) => { added.push(...items); return true; } });
   assert.equal(added.length, 1, "forwarded post must be handed to addListings");
   assert.equal(added[0].source, "facebook");
+  assert.equal(added[0].contactName, "Сурен Акопян", "contact name taken from forward header");
+  assert.equal(added[0].contactPhone, "+374 91 234567");
   assert.match(fake.messages.at(-1).text, /Добавил объявление в каталог/);
+  assert.match(fake.messages.at(-1).text, /Контакт: <a href="tel:/);
 
   // /add command with inline text.
   const addedViaCmd = [];

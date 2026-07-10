@@ -126,6 +126,35 @@ function parseCondition(text) {
   return "unknown";
 }
 
+function parseContactPhone(text) {
+  const matches = String(text || "").match(/\+?\d[\d\s()\-.]{6,}\d/g) || [];
+  for (const raw of matches) {
+    const digits = raw.replace(/\D/g, "");
+    if (digits.length >= 8 && digits.length <= 15) {
+      // Normalize Armenian numbers to +374 XX XXXXXX where possible.
+      if (digits.startsWith("374") && digits.length === 11) return `+${digits.slice(0, 3)} ${digits.slice(3, 5)} ${digits.slice(5)}`;
+      if (digits.startsWith("0") && digits.length === 9) return `+374 ${digits.slice(1, 3)} ${digits.slice(3)}`;
+      return raw.trim().replace(/\s+/g, " ");
+    }
+  }
+  return null;
+}
+
+const NAME_LABEL = /(?:контактное лицо|контакт|звоните|звонить|обращаться|имя|owner|contact|name|անուն)\s*[:\-]?\s*/i;
+// Name pattern kept case-sensitive (must start uppercase) even though the label above is not.
+const NAME_VALUE = /^([A-ZА-ЯЁԱ-Ֆ][A-Za-zА-Яа-яЁёԱ-Ֆա-ֆ]{1,20}(?:\s+[A-ZА-ЯЁԱ-Ֆ][A-Za-zА-Яа-яЁёԱ-Ֆա-ֆ]{1,20})?)/;
+
+function parseContactName(text) {
+  const value = normalizeText(text);
+  const label = value.match(NAME_LABEL);
+  if (!label) return "";
+  const nameMatch = value.slice(label.index + label[0].length).match(NAME_VALUE);
+  const name = nameMatch ? normalizeText(nameMatch[1]) : "";
+  // Guard against picking up common non-name words.
+  if (!name || /^(агент|owner|contact|name|звони|call)$/i.test(name)) return "";
+  return name.slice(0, 40);
+}
+
 function stableId(text, meta) {
   const seed = `${meta?.fromId || ""}:${meta?.messageId || ""}:${normalizeText(text).slice(0, 80)}`;
   let hash = 0;
@@ -145,6 +174,9 @@ function parseForwardedListing(text, config, meta = {}) {
   const rooms = parseRooms(value);
   const floor = kindKey === "apartment" ? parseFloor(value) : null;
   const condition = parseCondition(value);
+  const contactPhone = parseContactPhone(value);
+  // Prefer a name from the Telegram forward header; fall back to a labelled name in the text.
+  const contactName = normalizeText(meta.contactName || "").slice(0, 40) || parseContactName(value);
 
   const item = {
     id: stableId(value, meta),
@@ -174,6 +206,8 @@ function parseForwardedListing(text, config, meta = {}) {
     scannedAt: new Date().toISOString(),
     qualityScore: clamp(5 + (condition === "ready" ? 1 : 0) + (areaSqm >= 70 ? 0.5 : 0), 0, 10),
     forwardedBy: meta.fromId ? String(meta.fromId) : null,
+    contactName: contactName || null,
+    contactPhone: contactPhone || null,
   };
   return item;
 }
@@ -181,5 +215,5 @@ function parseForwardedListing(text, config, meta = {}) {
 module.exports = {
   looksLikeListingPost,
   parseForwardedListing,
-  __test: { parsePrice, parseArea, parseRooms, parseFloor, parseLocation },
+  __test: { parsePrice, parseArea, parseRooms, parseFloor, parseLocation, parseContactPhone, parseContactName },
 };
