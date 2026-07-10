@@ -34,15 +34,13 @@ let telegramPollTimer = null;
 let gmailMonitor = null;
 let gmailIngestQueue = Promise.resolve();
 
-const RELEASE_NOTICE_ID = "2026-07-10-listam-email-monitor";
+const RELEASE_NOTICE_ID = "2026-07-10-gmail-connected-start-refresh";
 const RELEASE_NOTICE_TEXT = [
-  "<b>Обновление бота</b>",
+  "<b>List.am подключён</b>",
   "",
-  "Новые объявления List.am теперь проверяются круглосуточно через официальные уведомления сайта.",
-  "Бот применит твои фильтры и сразу пришлёт подходящий вариант. Повторные письма не создадут дубликаты.",
+  "Бот теперь круглосуточно проверяет новые объявления List.am и присылает подходящие варианты по твоим фильтрам.",
   "",
-  "Твои фильтры не изменились. Каталог: /app · состояние: /status.",
-  "Нажми /start, чтобы обновить меню.",
+  "Нажми /start, чтобы обновить меню и включить все свежие настройки.",
 ].join("\n");
 
 function releaseNoticeKeyboard() {
