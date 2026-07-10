@@ -626,6 +626,23 @@ async function main() {
   assert.equal(secondApiPage.returned, 2);
   assert.equal(secondApiPage.hasMore, true);
   assert.equal(listingsApiPayload(apiState, config, { q: "avan" }, rankingNow).listings.every((item) => item.location === "Avan"), true);
+  const sourceDateState = {
+    listings: [
+      listing("920001", { publishedAt: "2026-07-08T08:00:00.000Z", discoveredAt: "2026-07-01T08:00:00.000Z", priceUsd: 90000 }),
+      listing("920002", { publishedAt: "2026-06-01T08:00:00.000Z", updatedAt: "2026-07-08T10:00:00.000Z", discoveredAt: "2026-06-01T08:00:00.000Z", priceUsd: 95000 }),
+      listing("920003", { publishedAt: "2026-05-01T08:00:00.000Z", discoveredAt: "2026-07-08T11:55:00.000Z", priceUsd: 100000 }),
+      listing("920004", { publishedAt: null, updatedAt: null, discoveredAt: "2026-07-08T11:59:00.000Z", priceUsd: 85000 }),
+    ],
+    lastScan: { at: rankingNow.toISOString(), sources: [] },
+    scanHealth: { sources: {} },
+  };
+  const sourceDatePayload = listingsApiPayload(sourceDateState, config, { sort: "fresh" }, rankingNow);
+  assert.deepEqual(
+    sourceDatePayload.listings.map((item) => item.id),
+    ["920002", "920001", "920003", "920004"],
+    "fresh sorting must use source update/publication dates and put undated listings last"
+  );
+  assert.equal(sourceDatePayload.freshLast24h, 2, "recent discovery alone must not count as a fresh listing");
   const richFilterState = {
     listings: [
       { ...listing("910001", { kindKey: "house", priceUsd: 115000, areaSqm: 120, rooms: 4, landSqm: 500, location: "Avan", condition: "ready", elevator: true }), imageUrl: "https://s.list.am/filter-1.webp" },

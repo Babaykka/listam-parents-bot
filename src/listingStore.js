@@ -1,5 +1,5 @@
 const { dedupeListings } = require("./dedupe");
-const { compareListingActivity } = require("./listingFreshness");
+const { compareListingStorageActivity } = require("./listingFreshness");
 const { annotateListings } = require("./ranking");
 
 function mergeListings(previous, scanned, config, now = new Date()) {
@@ -38,7 +38,7 @@ function mergeListings(previous, scanned, config, now = new Date()) {
   }
 
   return annotateListings(dedupeListings(Array.from(byId.values())), now)
-    .sort(compareListingActivity)
+    .sort(compareListingStorageActivity)
     .slice(0, config.maxListingsCache);
 }
 

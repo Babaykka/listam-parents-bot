@@ -54,16 +54,38 @@ function nextSeenIds(previousSeen, listings, maxSeenIds) {
   return Array.from(new Set([...retained, ...currentKeys])).slice(-maxSeenIds);
 }
 
+function sourceActivityTimestamp(item) {
+  const timestamps = [item?.updatedAt, item?.publishedAt]
+    .map((value) => Date.parse(value || ""))
+    .filter(Number.isFinite);
+  return timestamps.length > 0 ? Math.max(...timestamps) : null;
+}
+
 function listingActivityValue(item) {
-  return item.updatedAt || item.publishedAt || item.discoveredAt || item.scannedAt || "";
+  const timestamp = sourceActivityTimestamp(item);
+  return timestamp === null ? "" : new Date(timestamp).toISOString();
 }
 
 function compareListingActivity(a, b) {
-  return String(listingActivityValue(b)).localeCompare(String(listingActivityValue(a))) || Number(a.priceUsd || 0) - Number(b.priceUsd || 0);
+  const aTime = sourceActivityTimestamp(a);
+  const bTime = sourceActivityTimestamp(b);
+  if (aTime === null && bTime !== null) return 1;
+  if (aTime !== null && bTime === null) return -1;
+  if (aTime !== bTime) return Number(bTime || 0) - Number(aTime || 0);
+  return Number(a.priceUsd || 0) - Number(b.priceUsd || 0);
+}
+
+// Cache retention may use discovery time when a source exposes no dates. This
+// stays separate from user-facing freshness: discovery is not publication.
+function compareListingStorageActivity(a, b) {
+  const aTime = (sourceActivityTimestamp(a) ?? Date.parse(a?.discoveredAt || a?.scannedAt || "")) || 0;
+  const bTime = (sourceActivityTimestamp(b) ?? Date.parse(b?.discoveredAt || b?.scannedAt || "")) || 0;
+  return bTime - aTime || Number(a.priceUsd || 0) - Number(b.priceUsd || 0);
 }
 
 module.exports = {
   compareListingActivity,
+  compareListingStorageActivity,
   daysSince,
   isSeenListing,
   listingActivityValue,
