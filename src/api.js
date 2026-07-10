@@ -1,6 +1,7 @@
 const { compareListingActivity, daysSince } = require("./listingFreshness");
 const { priceDropPercent, visibleListings } = require("./listingStore");
 const { mergedSourceEntries } = require("./sourceHealth");
+const { isGmailConfigured } = require("./gmail");
 const { localizeDescription } = require("./localize");
 const { unique } = require("./utils");
 
@@ -133,15 +134,19 @@ function listingsApiPayload(state, config, query = {}, now = new Date()) {
     total: filtered.length,
     freshLast24h: freshCount(visible, now),
     locations: unique(visible.map((item) => item.location)).sort(),
-    sources: mergedSourceEntries(state).map((entry) => ({
-      label: entry.label,
-      listings: entry.listings,
-      catalogListings: entry.catalogListings ?? entry.listings,
-      lastScanListings: entry.lastScanListings ?? entry.listings,
-      lastSuccessAt: entry.lastSuccessAt || null,
-      stale: Boolean(entry.stale),
-      ok: !entry.degraded && !entry.blocked && !entry.lastError,
-    })),
+    sources: mergedSourceEntries(state).map((entry) => {
+      const gmailSetupRequired = entry.source === "listam" && config.gmailImapEnabled && !isGmailConfigured(config);
+      return {
+        label: entry.label,
+        listings: entry.listings,
+        catalogListings: entry.catalogListings ?? entry.listings,
+        lastScanListings: entry.lastScanListings ?? entry.listings,
+        lastSuccessAt: entry.lastSuccessAt || null,
+        stale: Boolean(entry.stale),
+        ok: !gmailSetupRequired && !entry.degraded && !entry.blocked && !entry.lastError,
+        statusText: gmailSetupRequired ? "нужно завершить подключение Gmail" : null,
+      };
+    }),
     listings: filtered.slice(0, limit).map(publicListingView),
   };
 }

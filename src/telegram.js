@@ -657,10 +657,13 @@ function shortFiltersText(config, rawFilters) {
   ].join("\n");
 }
 
-function sourceStatusLine(entry) {
+function sourceStatusLine(entry, config) {
   const catalog = Number(entry.catalogListings ?? entry.listings ?? 0);
   const scanned = Number(entry.lastScanListings ?? entry.listings ?? 0);
   const lastSuccess = relativeTimeText(entry.lastSuccessAt);
+  if (entry.source === "listam" && config.gmailImapEnabled && (!config.gmailUser || !config.gmailAppPassword)) {
+    return `⚠️ ${entry.label} — в каталоге ${listingsCountText(catalog)}; нужно завершить подключение Gmail для новых объявлений`;
+  }
   if (entry.degraded || entry.stale) {
     const error = entry.lastError ? ` (${entry.lastError})` : "";
     const cached = catalog > 0 ? `в каталоге ${listingsCountText(catalog)}; ` : "";
@@ -697,7 +700,7 @@ function statusText(config, state) {
 
   if (entries.length > 0) {
     lines.push("", "Источники:");
-    for (const entry of entries) lines.push(sourceStatusLine(entry));
+    for (const entry of entries) lines.push(sourceStatusLine(entry, config));
   } else if (blockedStreak > 0) {
     lines.push("", "List.am сейчас показывает проверку браузера. Другие источники бот проверяет параллельно.");
   }

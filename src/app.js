@@ -12,7 +12,7 @@ const { scanListAmFeed } = require("./listamFeed");
 const { GmailListAmMonitor, isGmailConfigured, isGmailHealthy, publicGmailHealth } = require("./gmail");
 const { scanMyRealty } = require("./myrealty");
 const crypto = require("crypto");
-const { relayFallbackResult, sanitizeIngestPayload, storeRelayListings } = require("./ingest");
+const { relayFallbackResult, sanitizeIngestPayload, storeBackfillListings, storeRelayListings } = require("./ingest");
 const { backfillImages } = require("./imageBackfill");
 const { coreSourcesDown, updateSourceHealth } = require("./sourceHealth");
 const { activeSubscribers, deactivateSubscriber, readState, writeState } = require("./state");
@@ -603,6 +603,22 @@ async function handleIngest(req, res) {
   const result = sanitizeIngestPayload(payload, { ...config, maxPriceUsd: sourceMaxPriceUsd(config, state) });
   if (result.error) {
     json(res, 400, { ok: false, error: result.error });
+    return;
+  }
+
+  if (result.mode === "backfill") {
+    const stored = storeBackfillListings(state, result.listings, config);
+    writeState(config, state);
+    console.log(`[ingest] ${result.source}: backfilled ${stored.added}, accepted ${result.listings.length}, dropped ${result.dropped}`);
+    json(res, 200, {
+      ok: true,
+      source: result.source,
+      mode: result.mode,
+      accepted: result.listings.length,
+      added: stored.added,
+      catalogListings: stored.catalogListings,
+      dropped: result.dropped,
+    });
     return;
   }
 

@@ -9,7 +9,7 @@ const { dedupeListings, isLikelyDuplicate } = require("../src/dedupe");
 const { mergeListings, priceDropPercent, visibleListings } = require("../src/listingStore");
 const { computeBaselines, explainListing, valueScore } = require("../src/ranking");
 const { coreSourcesDown, isSourceDegraded, mergedSourceEntries, sourceStatusEntries, updateSourceHealth } = require("../src/sourceHealth");
-const { relayFallbackResult, sanitizeIngestPayload, storeRelayListings } = require("../src/ingest");
+const { relayFallbackResult, sanitizeIngestPayload, storeBackfillListings, storeRelayListings } = require("../src/ingest");
 const { listingsApiPayload, publicListingView, shortDescription } = require("../src/api");
 const { localizeDescription } = require("../src/localize");
 const { __test: estateTest } = require("../src/estate");
@@ -533,6 +533,12 @@ async function main() {
   assert.equal(ingestResult.listings[0].injected, undefined, "unknown fields must be stripped");
   assert.equal(ingestResult.listings[0].pricePerSqm, Math.round(95000 / 70));
   assert.equal(ingestResult.listings[0].imageUrl, "https://s.list.am/f/123/12345678.webp");
+  const backfillPayload = sanitizeIngestPayload({ source: "listam", mode: "backfill", listings: [ingestResult.listings[0]] }, config);
+  assert.equal(backfillPayload.mode, "backfill");
+  const backfillState = { listings: [], seenIds: [] };
+  assert.deepEqual(storeBackfillListings(backfillState, backfillPayload.listings, config), { added: 1, catalogListings: 1 });
+  assert.equal(backfillState.seenIds.includes("22979765@2026-07-08T09:00:00.000Z"), true);
+  assert.deepEqual(storeBackfillListings(backfillState, backfillPayload.listings, config), { added: 0, catalogListings: 1 });
   assert.equal(
     sanitizeIngestPayload(
       { source: "listam", listings: [{ id: "9", kindKey: "apartment", priceUsd: 90000, url: "https://www.list.am/item/9", location: "Avan", imageUrl: "http://insecure.example/1.jpg" }] },
@@ -542,6 +548,7 @@ async function main() {
     "non-https images must be dropped"
   );
   assert.match(sanitizeIngestPayload({ source: "evil", listings: [] }, config).error, /unknown source/);
+  assert.match(sanitizeIngestPayload({ source: "listam", mode: "notify-everyone", listings: [] }, config).error, /unknown ingest mode/);
   assert.match(sanitizeIngestPayload({ source: "listam", listings: "no" }, config).error, /array/);
 
   const relayState = {};

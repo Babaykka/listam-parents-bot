@@ -387,7 +387,7 @@
       var scanned = s.lastScanListings == null ? s.listings : s.lastScanListings;
       var tail = s.ok
         ? ' <span class="cnt">· каталог ' + catalog + " · получено " + scanned + "</span>"
-        : ' <span class="cnt">· каталог ' + catalog + " · обновление задержано</span>";
+        : ' <span class="cnt">· каталог ' + catalog + " · " + esc(s.statusText || "обновление задержано") + "</span>";
       return '<span class="src' + (s.ok ? "" : " warn") + '">' + (s.ok ? "✅" : "⏳") + " <b>" + esc(s.label) + "</b>" + tail + "</span>";
     }).join("");
     var sel = $("districtSel");

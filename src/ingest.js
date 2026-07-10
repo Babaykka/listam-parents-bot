@@ -1,4 +1,5 @@
-const { compareListingActivity } = require("./listingFreshness");
+const { compareListingActivity, nextSeenIds } = require("./listingFreshness");
+const { mergeListings } = require("./listingStore");
 const { normalizeText, unique } = require("./utils");
 
 const MAX_INGEST_LISTINGS = 500;
@@ -81,6 +82,8 @@ function sanitizeIngestListing(raw, config) {
 function sanitizeIngestPayload(payload, config) {
   const source = cleanString(payload?.source, 30) || "listam";
   if (!ALLOWED_SOURCES.has(source)) return { error: `unknown source: ${source}` };
+  const mode = cleanString(payload?.mode, 20) || "live";
+  if (!new Set(["live", "backfill"]).has(mode)) return { error: `unknown ingest mode: ${mode}` };
   const rawListings = Array.isArray(payload?.listings) ? payload.listings : null;
   if (!rawListings) return { error: "listings must be an array" };
 
@@ -97,7 +100,17 @@ function sanitizeIngestPayload(payload, config) {
   }
   dropped += Math.max(0, rawListings.length - MAX_INGEST_LISTINGS);
 
-  return { source, listings, dropped };
+  return { source, mode, listings, dropped };
+}
+
+function storeBackfillListings(state, listings, config, now = new Date()) {
+  const knownIds = new Set((state.listings || []).map((item) => String(item.id)));
+  state.listings = mergeListings(state.listings || [], listings || [], config, now);
+  state.seenIds = nextSeenIds(state.seenIds || [], listings || [], config.maxSeenIds);
+  return {
+    added: (listings || []).filter((item) => !knownIds.has(String(item.id))).length,
+    catalogListings: state.listings.length,
+  };
 }
 
 function storeRelayListings(state, source, listings, now = new Date()) {
@@ -132,5 +145,6 @@ module.exports = {
   MAX_INGEST_LISTINGS,
   relayFallbackResult,
   sanitizeIngestPayload,
+  storeBackfillListings,
   storeRelayListings,
 };
