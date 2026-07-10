@@ -148,6 +148,7 @@ function loadConfig() {
     scanIntervalMinutes,
     blockedScanIntervalMinutes,
     blockedScanMaxIntervalMinutes,
+    listamDirectEnabled: envBool("LISTAM_DIRECT_ENABLED", true),
     scanPagesPerCategory: envNumber("LISTAM_PAGES_PER_CATEGORY", 3),
     scanPageWaitSeconds: envNumber("LISTAM_PAGE_WAIT_SECONDS", 60),
     challengeWaitSeconds: envNumber("LISTAM_CHALLENGE_MAX_SECONDS", 45),

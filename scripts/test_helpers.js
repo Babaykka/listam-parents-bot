@@ -30,6 +30,7 @@ function testConfig(overrides = {}) {
     scanIntervalMinutes: 5,
     blockedScanIntervalMinutes: 15,
     blockedScanMaxIntervalMinutes: 60,
+    listamDirectEnabled: true,
     scanPagesPerCategory: 1,
     scanPageWaitSeconds: 1,
     challengeWaitSeconds: 1,

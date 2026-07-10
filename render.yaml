@@ -35,6 +35,8 @@ services:
         value: "0"
       - key: LISTAM_CATEGORY_IDS
         value: "60,62"
+      - key: LISTAM_DIRECT_ENABLED
+        value: "false"
       - key: LISTAM_PAGES_PER_CATEGORY
         value: "1"
       - key: LISTAM_PAGE_WAIT_SECONDS

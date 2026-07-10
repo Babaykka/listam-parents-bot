@@ -235,15 +235,27 @@ function listamConfigForProbe(config, probeMode) {
 
 async function scanSources(config, state) {
   const scanConfig = { ...config, maxPriceUsd: sourceMaxPriceUsd(config, state) };
-  const probeMode = listamProbeMode(config, state);
-  const listamJob = safeScanSource("listam", scanListAm, listamConfigForProbe(scanConfig, probeMode)).then((result) => {
-    result.blocked = listamBlocked(result, scanConfig);
-    return {
-      ...result,
-      sourceName: "listam",
-      probeMode,
-    };
-  });
+  const probeMode = config.listamDirectEnabled ? listamProbeMode(config, state) : "disabled";
+  const listamJob = config.listamDirectEnabled
+    ? safeScanSource("listam", scanListAm, listamConfigForProbe(scanConfig, probeMode)).then((result) => {
+        result.blocked = listamBlocked(result, scanConfig);
+        return {
+          ...result,
+          sourceName: "listam",
+          probeMode,
+        };
+      })
+    : Promise.resolve({
+        listings: [],
+        skipped: [],
+        scannedAt: new Date().toISOString(),
+        locations: [],
+        blocked: false,
+        error: null,
+        durationMs: 0,
+        sourceName: "listam",
+        probeMode,
+      });
 
   const fallbackJobs = [];
   if (config.listamFeedUrls.length > 0) {

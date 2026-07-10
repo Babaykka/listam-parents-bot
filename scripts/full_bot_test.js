@@ -35,6 +35,7 @@ async function main() {
   assert.match(renderYaml, /key: BANALI_FALLBACK_ENABLED\s*\n\s*value: "true"/);
   assert.match(renderYaml, /key: BANALI_PAGES_PER_CATEGORY\s*\n\s*value: "8"/);
   assert.match(renderYaml, /key: LISTAM_QUICK_CHALLENGE_MAX_SECONDS\s*\n\s*value: "8"/);
+  assert.match(renderYaml, /key: LISTAM_DIRECT_ENABLED\s*\n\s*value: "false"/);
   assert.match(renderYaml, /key: LISTAM_FEED_URLS\s*\n\s*value: ""/);
   assert.match(renderYaml, /key: COLLECT_ALL_LISTINGS\s*\n\s*value: "true"/);
   assert.match(renderYaml, /key: MAX_LISTINGS_CACHE\s*\n\s*value: "20000"/);
