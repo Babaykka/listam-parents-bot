@@ -3,8 +3,8 @@ const http = require("http");
 const path = require("path");
 const { listingsApiPayload } = require("./api");
 const { loadConfig } = require("./config");
-const { compareListingActivity, isSeenListing, nextSeenIds } = require("./listingFreshness");
-const { mergeListings } = require("./listingStore");
+const { compareListingActivity, isSeenListing, listingSeenKey, nextSeenIds } = require("./listingFreshness");
+const { annotateListingChanges, mergeListings } = require("./listingStore");
 const { scanBanali } = require("./banali");
 const { scanEstate } = require("./estate");
 const { scanListAm } = require("./listam");
@@ -34,11 +34,12 @@ let telegramPollTimer = null;
 let gmailMonitor = null;
 let gmailIngestQueue = Promise.resolve();
 
-const RELEASE_NOTICE_ID = "2026-07-10-catalog-filters-start-refresh";
+const RELEASE_NOTICE_ID = "2026-07-11-reliable-listing-updates";
 const RELEASE_NOTICE_TEXT = [
-  "<b>Каталог обновлён</b>",
+  "<b>Уведомления стали точнее</b>",
   "",
-  "Добавлены удобные фильтры по цене, площади, комнатам, району и расстоянию до центра.",
+  "Теперь бот повторно покажет уже известное объявление, если площадка обновила его или заметно изменились цена, площадь, комнаты, этаж, участок или район.",
+  "Время, когда бот впервые нашёл объявление, больше не выдаётся за дату публикации.",
   "",
   "Нажми /start, чтобы обновить меню бота.",
 ].join("\n");
@@ -286,6 +287,12 @@ async function scanSources(config, state) {
   return combineScanResults(listam, fallbacks);
 }
 
+function isNewListingVersion(oldSeen, previousById, item, now) {
+  const previous = previousById.get(String(item.id || ""));
+  if (previous && listingSeenKey(previous) === listingSeenKey(item)) return false;
+  return !isSeenListing(config, oldSeen, item, now);
+}
+
 async function runScanCycle(reason = "schedule") {
   if (scanRunning) {
     console.log(`[scan] already running, skip ${reason}`);
@@ -298,14 +305,16 @@ async function runScanCycle(reason = "schedule") {
   try {
     const now = new Date();
     const oldSeen = new Set(state.seenIds || []);
+    const previousById = new Map((state.listings || []).map((item) => [String(item.id || ""), item]));
     const previousBlockedStreak = Number(state.scanHealth?.blockedStreak || 0);
     const result = await scanSources(config, state);
-    const newListings = result.listings.filter((item) => !isSeenListing(config, oldSeen, item, now));
+    result.listings = annotateListingChanges(state.listings, result.listings, now);
+    const newListings = result.listings.filter((item) => isNewListingVersion(oldSeen, previousById, item, now));
     const challengeBlocked = Boolean(result.blocked) && !isGmailHealthy(config, state);
     const listamSource = result.sourceResults?.find((source) => source.source === "listam");
 
     state.seenIds = nextSeenIds(state.seenIds || [], result.listings, config.maxSeenIds);
-    state.listings = mergeListings(state.listings, result.listings, config);
+    state.listings = mergeListings(state.listings, result.listings, config, now);
 
     const mergedById = new Map(state.listings.map((item) => [item.id, item]));
     // Keep duplicates in the batch: notifySubscribers suppresses them per
@@ -465,14 +474,17 @@ async function maybeNotifyCoreSourceIssue(config, state) {
 // Merge user-forwarded listings into the catalog immediately and notify
 // subscribers, reusing the same pipeline (dedupe, ranking, freshness) as scans.
 async function addForwardedListings(items) {
-  const fresh = (items || []).filter(Boolean);
-  if (fresh.length === 0) return false;
+  const incoming = (items || []).filter(Boolean);
+  if (incoming.length === 0) return false;
 
-  const knownIds = new Set((state.listings || []).map((item) => item.id));
-  state.listings = mergeListings(state.listings, fresh, config);
+  const now = new Date();
+  const oldSeen = new Set(state.seenIds || []);
+  const previousById = new Map((state.listings || []).map((item) => [String(item.id || ""), item]));
+  const prepared = annotateListingChanges(state.listings, incoming, now);
+  const newVersions = prepared.filter((item) => isNewListingVersion(oldSeen, previousById, item, now));
+  state.listings = mergeListings(state.listings, prepared, config, now);
   const mergedById = new Map(state.listings.map((item) => [item.id, item]));
-  const toNotify = fresh
-    .filter((item) => !knownIds.has(item.id))
+  const toNotify = newVersions
     .map((item) => mergedById.get(item.id) || item)
     .filter((item) => item && !item.duplicateOf);
 

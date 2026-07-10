@@ -63,6 +63,7 @@ function publicListingView(item) {
     elevator: item.elevator ?? null,
     publishedAt: item.publishedAt || null,
     updatedAt: item.updatedAt || null,
+    changeDetectedAt: item.changeDetectedAt || null,
     discoveredAt: item.discoveredAt || null,
     url: item.url,
     description: shortDescription(item),
@@ -156,7 +157,8 @@ function freshCount(listings, now = new Date()) {
   return listings.filter((item) => {
     const published = daysSince(item.publishedAt, now);
     const updated = daysSince(item.updatedAt, now);
-    return (published !== null && published >= 0 && published <= 1) || (updated !== null && updated >= 0 && updated <= 1);
+    const changed = daysSince(item.changeDetectedAt, now);
+    return [published, updated, changed].some((days) => days !== null && days >= 0 && days <= 1);
   }).length;
 }
 

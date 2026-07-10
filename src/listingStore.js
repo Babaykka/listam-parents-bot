@@ -2,6 +2,86 @@ const { dedupeListings } = require("./dedupe");
 const { compareListingStorageActivity } = require("./listingFreshness");
 const { annotateListings } = require("./ranking");
 
+const MATERIAL_FIELDS = [
+  ["priceUsd", (item) => item.priceUsd],
+  ["areaSqm", (item) => item.areaSqm],
+  ["rooms", (item) => item.rooms],
+  ["floor", (item) => item.floor?.current],
+  ["floorsTotal", (item) => item.floor?.total],
+  ["landSqm", (item) => item.landSqm],
+  ["location", (item) => item.location],
+];
+
+function comparableValue(value) {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  const text = String(value).trim();
+  return text ? text : null;
+}
+
+function latestDateValue(current, previous) {
+  const currentTime = Date.parse(current || "");
+  const previousTime = Date.parse(previous || "");
+  if (Number.isFinite(currentTime) && Number.isFinite(previousTime)) {
+    return currentTime >= previousTime ? current : previous;
+  }
+  if (Number.isFinite(currentTime)) return current;
+  if (Number.isFinite(previousTime)) return previous;
+  return null;
+}
+
+function materialListingChanges(previous, current) {
+  if (!previous || !current) return [];
+  const changes = [];
+  for (const [field, read] of MATERIAL_FIELDS) {
+    const before = comparableValue(read(previous));
+    const after = comparableValue(read(current));
+    // Missing -> known is parser enrichment, not proof that the seller edited
+    // the listing. Only compare values that were present in both snapshots.
+    if (before !== null && after !== null && before !== after) changes.push(field);
+  }
+  return changes;
+}
+
+function annotateListingChanges(previous, scanned, now = new Date()) {
+  const previousById = new Map((previous || []).map((item) => [String(item.id || ""), item]));
+  const nowIso = now.toISOString();
+
+  return (scanned || []).map((item) => {
+    const existing = previousById.get(String(item.id || ""));
+    if (!existing) return item;
+
+    const changes = materialListingChanges(existing, item);
+    const incomingUpdateTime = Date.parse(item.updatedAt || "");
+    const existingUpdateTime = Date.parse(existing.updatedAt || "");
+    const sourceUpdateAdvanced =
+      Number.isFinite(incomingUpdateTime) &&
+      (!Number.isFinite(existingUpdateTime) || incomingUpdateTime > existingUpdateTime);
+    const updatedAt = latestDateValue(item.updatedAt, existing.updatedAt);
+    const next = {
+      ...item,
+      // A partial card or email must not erase dates learned earlier.
+      publishedAt: item.publishedAt || existing.publishedAt || null,
+      publishedAtPrecision: item.publishedAt
+        ? item.publishedAtPrecision || null
+        : existing.publishedAtPrecision || null,
+      updatedAt,
+      updatedAtPrecision:
+        updatedAt && updatedAt === item.updatedAt ? item.updatedAtPrecision || null : existing.updatedAtPrecision || null,
+      changeDetectedAt: item.changeDetectedAt || existing.changeDetectedAt || null,
+      changedFields: item.changedFields || existing.changedFields || [],
+    };
+
+    // Prefer the site's own update timestamp. When it is missing or unchanged,
+    // a material field difference is still reliable evidence of a new version.
+    if (changes.length > 0 && !sourceUpdateAdvanced) {
+      next.changeDetectedAt = nowIso;
+      next.changedFields = changes;
+    }
+    return next;
+  });
+}
+
 function mergeListings(previous, scanned, config, now = new Date()) {
   const nowIso = now.toISOString();
   const byId = new Map();
@@ -13,7 +93,7 @@ function mergeListings(previous, scanned, config, now = new Date()) {
     });
   }
 
-  for (const item of scanned || []) {
+  for (const item of annotateListingChanges(previous, scanned, now)) {
     const existing = byId.get(item.id);
     const prevPrice = Number(existing?.priceUsd || 0);
     const newPrice = Number(item.priceUsd || 0);
@@ -57,6 +137,8 @@ function visibleListings(listings) {
 }
 
 module.exports = {
+  annotateListingChanges,
+  materialListingChanges,
   mergeListings,
   priceDropPercent,
   visibleListings,

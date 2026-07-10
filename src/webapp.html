@@ -285,7 +285,7 @@
     <div class="sub" id="updated">Загружаю…</div>
     <div class="stats" id="stats" hidden>
       <div class="stat"><div class="num" id="statTotal">–</div><div class="lbl">объявлений</div></div>
-      <div class="stat"><div class="num" id="statFresh">–</div><div class="lbl">свежих за сутки</div></div>
+      <div class="stat"><div class="num" id="statFresh">–</div><div class="lbl">новых и обновлённых за сутки</div></div>
       <div class="stat"><div class="num" id="statSources">–</div><div class="lbl">источников работает</div></div>
     </div>
     <div class="sources" id="sources"></div>
@@ -305,7 +305,7 @@
     <div class="tool-row">
       <button class="tool-button" id="openFilters" type="button">Фильтры <span class="filter-count" id="filterCount" hidden>0</span></button>
       <select class="tool-select" id="sortSel" aria-label="Сортировка объявлений">
-        <option value="fresh">Сначала свежие</option>
+        <option value="fresh">Новые и обновлённые</option>
         <option value="value">Сначала выгодные</option>
         <option value="price_asc">Сначала дешевле</option>
         <option value="price_desc">Сначала дороже</option>
@@ -527,11 +527,15 @@
     return '<div class="contact">📞 ' + parts.join(" · ") + "</div>";
   }
 
-  function isFresh(item) {
-    var t = Date.parse(item.publishedAt || 0);
-    var u = Date.parse(item.updatedAt || 0);
+  function recentActivityLabel(item) {
+    var t = Date.parse(item.publishedAt || "");
+    var u = Date.parse(item.updatedAt || "");
+    var c = Date.parse(item.changeDetectedAt || "");
     var day = 24 * 3600000;
-    return (isFinite(t) && Date.now() - t < day) || (isFinite(u) && Date.now() - u < day);
+    if (isFinite(t) && Date.now() - t >= 0 && Date.now() - t < day) return "новое";
+    if ((isFinite(u) && Date.now() - u >= 0 && Date.now() - u < day) ||
+        (isFinite(c) && Date.now() - c >= 0 && Date.now() - c < day)) return "обновлено";
+    return "";
   }
 
   function card(item) {
@@ -547,11 +551,20 @@
       conditionLabel(item.condition),
       item.elevator === true ? "лифт" : null,
     ].filter(Boolean);
-    var when = item.updatedAt ? "обновлено " + rel(item.updatedAt) : item.publishedAt ? rel(item.publishedAt) : (item.discoveredAt ? "найдено " + rel(item.discoveredAt) : "");
+    var sourceUpdateTime = Date.parse(item.updatedAt || "");
+    var detectedChangeTime = Date.parse(item.changeDetectedAt || "");
+    var when = isFinite(detectedChangeTime) && (!isFinite(sourceUpdateTime) || detectedChangeTime > sourceUpdateTime)
+      ? "изменение замечено " + rel(item.changeDetectedAt)
+      : isFinite(sourceUpdateTime)
+        ? "обновлено " + rel(item.updatedAt)
+        : item.publishedAt
+          ? "опубликовано " + rel(item.publishedAt)
+          : (item.discoveredAt ? "добавлено в каталог " + rel(item.discoveredAt) : "");
     var src = esc(item.sourceLabel || "");
     if (item.alsoSources && item.alsoSources.length) src += " +" + item.alsoSources.length;
 
-    var freshBadge = isFresh(item) ? '<span class="fresh">новое</span>' : "";
+    var activityLabel = recentActivityLabel(item);
+    var freshBadge = activityLabel ? '<span class="fresh">' + activityLabel + "</span>" : "";
     var proxied = item.imageUrl ? "/img?u=" + encodeURIComponent(item.imageUrl) : "";
     var glyph = item.kindKey === "house" ? "🏡" : "🏢";
     var photo = proxied

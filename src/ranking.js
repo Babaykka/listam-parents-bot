@@ -59,7 +59,8 @@ function pricePerSqmDiscount(item, baselines) {
 function freshnessDays(item, now) {
   const published = daysSince(item.publishedAt, now);
   const updated = daysSince(item.updatedAt, now);
-  const candidates = [published, updated].filter((value) => value !== null && value >= 0);
+  const changed = daysSince(item.changeDetectedAt, now);
+  const candidates = [published, updated, changed].filter((value) => value !== null && value >= 0);
   return candidates.length ? Math.min(...candidates) : null;
 }
 

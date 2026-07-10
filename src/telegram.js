@@ -215,7 +215,13 @@ function formatYerevanDate(value) {
 }
 
 function listingDateDetail(item) {
-  if (item.updatedAt) {
+  const sourceUpdatedTime = Date.parse(item.updatedAt || "");
+  const detectedChangeTime = Date.parse(item.changeDetectedAt || "");
+  const showSourceUpdate =
+    Number.isFinite(sourceUpdatedTime) &&
+    (!Number.isFinite(detectedChangeTime) || sourceUpdatedTime >= detectedChangeTime);
+
+  if (showSourceUpdate) {
     const updatedValue =
       item.updatedAtPrecision === "date" ? formatYerevanDate(item.updatedAt) : formatYerevanDateTime(item.updatedAt);
     const publishedValue = item.publishedAt
@@ -227,6 +233,19 @@ function listingDateDetail(item) {
       return `обновлено ${updatedValue}, опубликовано ${publishedValue}`;
     }
     if (updatedValue) return `обновлено ${updatedValue}`;
+  }
+
+  if (Number.isFinite(detectedChangeTime)) {
+    const changedValue = formatYerevanDateTime(item.changeDetectedAt);
+    const publishedValue = item.publishedAt
+      ? item.publishedAtPrecision === "date"
+        ? formatYerevanDate(item.publishedAt)
+        : formatYerevanDateTime(item.publishedAt)
+      : "";
+    if (changedValue && publishedValue) {
+      return `изменение замечено ${changedValue}, опубликовано ${publishedValue}`;
+    }
+    if (changedValue) return `изменение замечено ${changedValue}`;
   }
 
   if (item.publishedAt) {
@@ -439,14 +458,20 @@ function groupLatestSections(config, listings, now = new Date()) {
   for (const item of listings) {
     const publishedDays = daysSince(item.publishedAt, now);
     const updatedDays = daysSince(item.updatedAt, now);
+    const changedDays = daysSince(item.changeDetectedAt, now);
     if (publishedDays !== null && publishedDays >= 0 && publishedDays <= 3) fresh.push(item);
-    else if (updatedDays !== null && updatedDays >= 0 && updatedDays <= 3) raised.push(item);
+    else if (
+      (updatedDays !== null && updatedDays >= 0 && updatedDays <= 3) ||
+      (changedDays !== null && changedDays >= 0 && changedDays <= 3)
+    ) {
+      raised.push(item);
+    }
     else rest.push(item);
   }
   const value = rest.slice().sort((a, b) => rankScoreOf(b) - rankScoreOf(a)).slice(0, 4);
   return [
     { key: "fresh", title: "Свежие объявления", items: fresh.slice(0, 8) },
-    { key: "raised", title: "Недавно поднятые", items: raised.slice(0, 6) },
+    { key: "raised", title: "Недавно обновлённые", items: raised.slice(0, 6) },
     { key: "value", title: "Выгодные по цене за м²", items: value },
   ].filter((section) => section.items.length > 0);
 }

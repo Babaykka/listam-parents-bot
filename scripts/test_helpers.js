@@ -193,6 +193,8 @@ function listing(id, overrides = {}) {
     publishedAtPrecision: overrides.publishedAtPrecision || null,
     updatedAt: overrides.updatedAt || null,
     updatedAtPrecision: overrides.updatedAtPrecision || null,
+    changeDetectedAt: overrides.changeDetectedAt || null,
+    changedFields: overrides.changedFields || [],
     rawText: overrides.rawText || `${location} renovated individual heating balcony`,
     qualityScore: overrides.qualityScore ?? 7,
     discoveredAt: overrides.discoveredAt || new Date(Date.now() - Number(id) * 1000).toISOString(),

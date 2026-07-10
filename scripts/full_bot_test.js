@@ -6,7 +6,7 @@ const { activeSubscribers, readState, writeState } = require("../src/state");
 const freshnessTest = require("../src/listingFreshness");
 const { __test: banaliTest } = require("../src/banali");
 const { dedupeListings, isLikelyDuplicate } = require("../src/dedupe");
-const { mergeListings, priceDropPercent, visibleListings } = require("../src/listingStore");
+const { annotateListingChanges, mergeListings, priceDropPercent, visibleListings } = require("../src/listingStore");
 const { computeBaselines, explainListing, valueScore } = require("../src/ranking");
 const { coreSourcesDown, isSourceDegraded, mergedSourceEntries, sourceStatusEntries, updateSourceHealth } = require("../src/sourceHealth");
 const { relayFallbackResult, sanitizeIngestPayload, storeBackfillListings, storeRelayListings } = require("../src/ingest");
@@ -385,7 +385,19 @@ async function main() {
   // Price drop is detected across scans and surfaced.
   const priced0 = { ...listing(950001, { priceUsd: 100000, location: "Avan" }) };
   const priced1 = { ...listing(950001, { priceUsd: 88000, location: "Avan" }) };
-  const dropped = mergeListings([priced0], [priced1], config).find((item) => item.id === "950001");
+  const priceChangeAt = new Date("2026-07-08T11:30:00.000Z");
+  const changedCandidate = annotateListingChanges([priced0], [priced1], priceChangeAt)[0];
+  assert.equal(changedCandidate.changeDetectedAt, priceChangeAt.toISOString());
+  assert.deepEqual(changedCandidate.changedFields, ["priceUsd"]);
+  assert.notEqual(freshnessTest.listingSeenKey(changedCandidate), freshnessTest.listingSeenKey(priced0));
+  assert.equal(
+    freshnessTest.isSeenListing(config, new Set([freshnessTest.listingSeenKey(priced0)]), changedCandidate, priceChangeAt),
+    false,
+    "a material change must create a notifiable listing version"
+  );
+  assert.equal(telegramTest.shouldNotifyListing(config, changedCandidate, priceChangeAt), true);
+  assert.match(telegramTest.listingDateDetail(changedCandidate), /изменение замечено 08\.07\.2026/);
+  const dropped = mergeListings([priced0], [changedCandidate], config, priceChangeAt).find((item) => item.id === "950001");
   assert.equal(dropped.previousPriceUsd, 100000);
   assert.equal(priceDropPercent(dropped), 12);
   // A tiny drop below the threshold is ignored.
@@ -393,7 +405,14 @@ async function main() {
   // The drop marker survives a subsequent unchanged-price scan.
   const stillDropped = mergeListings([dropped], [{ ...listing(950001, { priceUsd: 88000, location: "Avan" }) }], config).find((item) => item.id === "950001");
   assert.equal(priceDropPercent(stillDropped), 12);
+  assert.equal(stillDropped.changeDetectedAt, dropped.changeDetectedAt, "an unchanged scan must keep, not renew, the change timestamp");
   assert.match(telegramTest.listingLine(dropped), /цена снижена на 12%/);
+
+  const sourceVersion0 = listing("950002", { priceUsd: 100000, updatedAt: "2026-07-07T10:00:00.000Z" });
+  const sourceVersion1 = listing("950002", { priceUsd: 98000, updatedAt: "2026-07-08T10:00:00.000Z" });
+  const sourceDatedChange = annotateListingChanges([sourceVersion0], [sourceVersion1], priceChangeAt)[0];
+  assert.equal(sourceDatedChange.changeDetectedAt, null, "the site's own update timestamp must take precedence");
+  assert.equal(sourceDatedChange.updatedAt, "2026-07-08T10:00:00.000Z");
 
   const mergedCache = mergeListings([banaliOriginal], [myrealtyCopy], config);
   const mergedCopy = mergedCache.find((item) => item.id === "myrealty:200");
@@ -632,6 +651,7 @@ async function main() {
       listing("920002", { publishedAt: "2026-06-01T08:00:00.000Z", updatedAt: "2026-07-08T10:00:00.000Z", discoveredAt: "2026-06-01T08:00:00.000Z", priceUsd: 95000 }),
       listing("920003", { publishedAt: "2026-05-01T08:00:00.000Z", discoveredAt: "2026-07-08T11:55:00.000Z", priceUsd: 100000 }),
       listing("920004", { publishedAt: null, updatedAt: null, discoveredAt: "2026-07-08T11:59:00.000Z", priceUsd: 85000 }),
+      listing("920005", { publishedAt: "2026-04-01T08:00:00.000Z", changeDetectedAt: "2026-07-08T11:30:00.000Z", discoveredAt: "2026-04-01T08:10:00.000Z", priceUsd: 87000 }),
     ],
     lastScan: { at: rankingNow.toISOString(), sources: [] },
     scanHealth: { sources: {} },
@@ -639,10 +659,15 @@ async function main() {
   const sourceDatePayload = listingsApiPayload(sourceDateState, config, { sort: "fresh" }, rankingNow);
   assert.deepEqual(
     sourceDatePayload.listings.map((item) => item.id),
-    ["920002", "920001", "920003", "920004"],
-    "fresh sorting must use source update/publication dates and put undated listings last"
+    ["920005", "920002", "920001", "920003", "920004"],
+    "fresh sorting must use publication, source update, or a detected material change and put undated listings last"
   );
-  assert.equal(sourceDatePayload.freshLast24h, 2, "recent discovery alone must not count as a fresh listing");
+  assert.equal(sourceDatePayload.freshLast24h, 3, "recent discovery alone must not count, while a detected material change must");
+  assert.equal(sourceDatePayload.listings[0].changeDetectedAt, "2026-07-08T11:30:00.000Z");
+  const latestSections = telegramTest.groupLatestSections(config, sourceDatePayload.listings, rankingNow);
+  const updatedSection = latestSections.find((section) => section.key === "raised");
+  assert.equal(updatedSection.title, "Недавно обновлённые");
+  assert(updatedSection.items.some((item) => item.id === "920005"));
   const richFilterState = {
     listings: [
       { ...listing("910001", { kindKey: "house", priceUsd: 115000, areaSqm: 120, rooms: 4, landSqm: 500, location: "Avan", condition: "ready", elevator: true }), imageUrl: "https://s.list.am/filter-1.webp" },
