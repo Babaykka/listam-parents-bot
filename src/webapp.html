@@ -154,7 +154,7 @@
   }
   .ph .fresh { position: absolute; top: 8px; left: 8px; margin: 0; vertical-align: baseline; }
   .row1 { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
-  .price { font-size: 19px; font-weight: 700; letter-spacing: -0.02em; }
+  .price { font-size: 19px; font-weight: 700; letter-spacing: 0; }
   .sqm { color: var(--text-2); font-size: 13px; white-space: nowrap; }
   .search {
     width: 100%; margin: 10px 0 2px; box-sizing: border-box;
@@ -305,7 +305,7 @@
     <div class="tool-row">
       <button class="tool-button" id="openFilters" type="button">Фильтры <span class="filter-count" id="filterCount" hidden>0</span></button>
       <select class="tool-select" id="sortSel" aria-label="Сортировка объявлений">
-        <option value="fresh">Новые и обновлённые</option>
+        <option value="fresh">По актуальности</option>
         <option value="value">Сначала выгодные</option>
         <option value="price_asc">Сначала дешевле</option>
         <option value="price_desc">Сначала дороже</option>

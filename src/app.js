@@ -766,6 +766,12 @@ function createServer() {
         return;
       }
 
+      if (req.method === "GET" && url.pathname === "/favicon.ico") {
+        res.writeHead(204, { "cache-control": "public, max-age=86400" });
+        res.end();
+        return;
+      }
+
       if (req.method === "GET" && (url.pathname === "/app" || url.pathname === "/app/")) {
         res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache" });
         res.end(WEBAPP_HTML);
