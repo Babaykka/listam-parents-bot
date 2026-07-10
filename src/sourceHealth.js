@@ -2,6 +2,7 @@ const SOURCE_LABELS = {
   listam: "List.am",
   listam_feed: "List.am feed",
   listam_relay: "List.am (relay)",
+  listam_email: "List.am (email)",
   myrealty: "MyRealty",
   estate: "Estate.am",
   banali: "Banali.am",
@@ -88,7 +89,13 @@ function sourceStatusEntries(state, options = {}) {
   });
 }
 
-const LISTAM_FAMILY = ["listam", "listam_relay", "listam_feed"];
+const LISTAM_FAMILY = ["listam", "listam_relay", "listam_feed", "listam_email"];
+
+function recentlyHealthy(entry, now = new Date()) {
+  if (!entry || Number(entry.failStreak || 0) >= DEGRADED_AFTER_FAILS) return false;
+  const lastSuccessAt = Date.parse(entry.lastSuccessAt || "");
+  return Number.isFinite(lastSuccessAt) && now.getTime() - lastSuccessAt <= 10 * 60 * 1000;
+}
 
 function isListamListing(item) {
   if (LISTAM_FAMILY.includes(item.source)) return true;
@@ -112,9 +119,11 @@ function mergedSourceEntries(state) {
   if (family.length > 0 || catalogCount > 0) {
     const currentFamily = (state.lastScan?.sources || []).filter((entry) => LISTAM_FAMILY.includes(entry.source));
     const scanCount = currentFamily.reduce((sum, entry) => sum + Number(entry.listings || 0), 0);
-    const working = currentFamily.some(
+    const currentWorking = currentFamily.some(
       (entry) => Number(entry.listings || 0) > 0 && !entry.blocked && !entry.error
     );
+    const emailWorking = recentlyHealthy(family.find((entry) => entry.source === "listam_email"));
+    const working = currentWorking || emailWorking;
     const direct = family.find((entry) => entry.source === "listam") || {};
     const relayReceivedAt = state.relay?.listam?.receivedAt || null;
     const successTimes = family

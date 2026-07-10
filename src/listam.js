@@ -118,18 +118,55 @@ const YEREVAN_DAY_FORMATTER = new Intl.DateTimeFormat("en-US", {
   day: "2-digit",
 });
 
-function parsePrice(text) {
+const LOCATION_ALIASES = {
+  Ajapnyak: ["Ajapnyak", "Achapnyak", "Ачапняк", "Аджапняк", "Աջափնյակ"],
+  Arabkir: ["Arabkir", "Арабкир", "Արաբկիր"],
+  Avan: ["Avan", "Аван", "Ավան"],
+  Davtashen: ["Davtashen", "Давташен", "Դավթաշեն"],
+  Erebuni: ["Erebuni", "Erebouni", "Эребуни", "Էրեբունի"],
+  "Kanaker-Zeytun": ["Kanaker-Zeytun", "Kanaker Zeytun", "Kanaqer-Zeytun", "Канакер-Зейтун", "Քանաքեռ-Զեյթուն"],
+  Kentron: ["Kentron", "Center", "Centre", "Кентрон", "Центр", "Կենտրոն"],
+  "Malatia-Sebastia": ["Malatia-Sebastia", "Malatia Sebastia", "Малатия-Себастия", "Մալաթիա-Սեբաստիա"],
+  "Nor Nork": ["Nor Nork", "Nor-Nork", "Нор Норк", "Нор-Норк", "Նոր Նորք"],
+  "Nork-Marash": ["Nork-Marash", "Nork Marash", "Норк-Мараш", "Նորք-Մարաշ"],
+  Nubarashen: ["Nubarashen", "Нубарашен", "Նուբարաշեն"],
+  Shengavit: ["Shengavit", "Шенгавит", "Շենգավիթ"],
+  Abovyan: ["Abovyan", "Абовян", "Աբովյան"],
+  Arinj: ["Arinj", "Ариндж", "Առինջ"],
+  Balahovit: ["Balahovit", "Balaovit", "Балаовит", "Բալահովիտ"],
+  Dzoraghbyur: ["Dzoraghbyur", "Дзорахбюр", "Ձորաղբյուր"],
+  Jrvezh: ["Jrvezh", "Джрвеж", "Ջրվեժ"],
+  Kasakh: ["Kasakh", "Касах", "Քասախ"],
+  Masis: ["Masis", "Масис", "Մասիս"],
+  Merdzavan: ["Merdzavan", "Мердзаван", "Մերձավան"],
+  Parakar: ["Parakar", "Паракар", "Փարաքար"],
+  Ptghni: ["Ptghni", "Птгни", "Պտղնի"],
+  Proshyan: ["Proshyan", "Прошян", "Պռոշյան"],
+  "Verin Ptghni": ["Verin Ptghni", "Верин Птгни", "Վերին Պտղնի"],
+  Zovuni: ["Zovuni", "Зовуни", "Զովունի"],
+};
+
+function numericAmount(value) {
+  const compact = String(value || "").replace(/[\s,._]/g, "");
+  const amount = Number(compact);
+  return Number.isFinite(amount) && amount > 0 ? amount : null;
+}
+
+function parsePrice(text, config = {}) {
   const normalized = normalizeText(text);
-  const usd = normalized.match(/^\$([\d,]+)/);
+  const amountPattern = "(\\d{1,3}(?:[\\s,._]\\d{3})+|\\d+)";
+  const usd = normalized.match(new RegExp(`\\$\\s*${amountPattern}`));
   if (usd) {
-    const amount = Number(usd[1].replace(/,/g, ""));
+    const amount = numericAmount(usd[1]);
+    if (!amount) return null;
     return { amount, currency: "USD", usd: amount, label: `$${amount.toLocaleString("en-US")}` };
   }
 
-  const amd = normalized.match(/^([\d,]+)\s*֏/);
+  const amd = normalized.match(new RegExp(`${amountPattern}\\s*(?:֏|AMD|դրամ(?:ի)?|драм(?:ов|а)?)`, "i"));
   if (amd) {
-    const amount = Number(amd[1].replace(/,/g, ""));
-    const usdAmount = Math.round(amount / AMD_PER_USD);
+    const amount = numericAmount(amd[1]);
+    if (!amount) return null;
+    const usdAmount = Math.round(amount / Number(config.amdPerUsd || AMD_PER_USD));
     return {
       amount,
       currency: "AMD",
@@ -138,9 +175,10 @@ function parsePrice(text) {
     };
   }
 
-  const eur = normalized.match(/^€([\d,]+)/);
+  const eur = normalized.match(new RegExp(`€\\s*${amountPattern}`));
   if (eur) {
-    const amount = Number(eur[1].replace(/,/g, ""));
+    const amount = numericAmount(eur[1]);
+    if (!amount) return null;
     const usdAmount = Math.round(amount * 1.08);
     return {
       amount,
@@ -154,22 +192,24 @@ function parsePrice(text) {
 }
 
 function parseArea(text) {
-  const area = text.match(/([\d.]+)\s*sq\.m\./);
+  const area = text.match(/([\d.,]+)\s*(?:sq\.?\s*m\.?|m[²2]|м[²2]|кв\.?\s*м\.?|ք\.?\s*մ\.?)/i);
   return area ? Number(area[1]) : null;
 }
 
 function parseLandArea(text) {
-  const land = text.match(/on a ([\d,]+)\s*sq\.m\. land/);
+  const land = text.match(
+    /(?:on\s+a|land(?:\s+area)?|plot|участ(?:ок|ка|ке)?|հողատարածք)\D{0,20}([\d,]+)\s*(?:sq\.?\s*m\.?|m[²2]|м[²2]|кв\.?\s*м\.?|ք\.?\s*մ\.?)/i
+  );
   return land ? Number(land[1].replace(/,/g, "")) : null;
 }
 
 function parseRooms(text) {
-  const rooms = text.match(/(\d+)\s*room/);
+  const rooms = text.match(/(\d+)\s*(?:room(?:s)?|комн(?:ат[аы]?)?\.?|սենյակ)/i);
   return rooms ? Number(rooms[1]) : null;
 }
 
 function parseFloor(text) {
-  const floor = text.match(/(\d+)\/(\d+)\s*floor/);
+  const floor = text.match(/(\d+)\s*\/\s*(\d+)\s*(?:floor|эт(?:аж)?\.?|հարկ)?/i);
   return floor ? { current: Number(floor[1]), total: Number(floor[2]), label: `${floor[1]}/${floor[2]}` } : null;
 }
 
@@ -237,16 +277,30 @@ function parseElevator(text) {
 
 function parseCondition(text) {
   const lower = text.toLowerCase();
-  if (/renovation none|renovation old|unfinished|zero condition|needs renovation|no renovation/.test(lower)) return "needs_work";
-  if (/partial renovation|cosmetic renovation/.test(lower)) return "partial";
-  if (/major renovation|designer renovation|euro renovation|newly renovated|never occupied|renovated/.test(lower)) return "ready";
+  if (/renovation none|renovation old|unfinished|zero condition|needs renovation|no renovation|без ремонта|требует ремонта|неотремонтирован|զրոյական|չվերանորոգված/.test(lower)) return "needs_work";
+  if (/partial renovation|cosmetic renovation|частичн(?:ый|о) ремонт|косметическ(?:ий|ого) ремонт|մասնակի վերանորոգ/.test(lower)) return "partial";
+  if (/major renovation|designer renovation|euro renovation|newly renovated|never occupied|renovated|евроремонт|капитальн(?:ый|ого) ремонт|с ремонтом|վերանորոգված/.test(lower)) return "ready";
   return "unknown";
 }
 
+function normalizedLocationText(value) {
+  return ` ${String(value || "")
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[-_/]+/g, " ")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()} `;
+}
+
 function parseLocation(text, config) {
+  const haystack = normalizedLocationText(text);
   for (const location of config.defaultLocations) {
-    const escaped = location.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
-    if (new RegExp(`\\b${escaped}\\b`).test(text)) return location;
+    const aliases = LOCATION_ALIASES[location] || [location];
+    for (const alias of aliases) {
+      const needle = normalizedLocationText(alias);
+      if (needle.trim() && haystack.includes(needle)) return location;
+    }
   }
   return "";
 }
@@ -303,7 +357,7 @@ function normalizeImageUrl(value) {
 
 function parseItem(raw, category, config) {
   const text = normalizeText(raw.text);
-  const price = parsePrice(text);
+  const price = parsePrice(text, config);
   if (!price || price.usd > config.maxPriceUsd || price.usd < config.minPriceUsd) return null;
 
   const id = raw.href.match(/\/item\/(\d+)/)?.[1];

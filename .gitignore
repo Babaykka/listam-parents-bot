@@ -6,6 +6,7 @@ npm-debug.log*
 listam-playwright-check.png
 *.log
 .claude/
+.swarm/
 .playwright-cli/
 output/playwright/
 browser-state/

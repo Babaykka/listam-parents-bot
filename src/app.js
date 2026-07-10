@@ -9,6 +9,7 @@ const { scanBanali } = require("./banali");
 const { scanEstate } = require("./estate");
 const { scanListAm } = require("./listam");
 const { scanListAmFeed } = require("./listamFeed");
+const { GmailListAmMonitor, isGmailConfigured, isGmailHealthy, publicGmailHealth } = require("./gmail");
 const { scanMyRealty } = require("./myrealty");
 const crypto = require("crypto");
 const { relayFallbackResult, sanitizeIngestPayload, storeRelayListings } = require("./ingest");
@@ -30,16 +31,17 @@ let scanRunning = false;
 let server = null;
 let nextScanTimer = null;
 let telegramPollTimer = null;
+let gmailMonitor = null;
+let gmailIngestQueue = Promise.resolve();
 
-const RELEASE_NOTICE_ID = "2026-07-10-catalog-coverage";
+const RELEASE_NOTICE_ID = "2026-07-10-listam-email-monitor";
 const RELEASE_NOTICE_TEXT = [
   "<b>Обновление бота</b>",
   "",
-  "Каталог Estate.am теперь загружается целиком из официальных лент, а твои цена, площадь и районы применяются уже при показе и уведомлениях.",
-  "В разделе источников теперь отдельно видно, сколько объектов сохранено в каталоге и сколько вернула последняя проверка.",
-  "Если источник давно не обновлялся, бот честно покажет это и продолжит пробовать автоматически.",
+  "Новые объявления List.am теперь проверяются круглосуточно через официальные уведомления сайта.",
+  "Бот применит твои фильтры и сразу пришлёт подходящий вариант. Повторные письма не создадут дубликаты.",
   "",
-  "Твои фильтры не изменились. Каталог: /app · состояние источников: /status.",
+  "Твои фильтры не изменились. Каталог: /app · состояние: /status.",
   "Нажми /start, чтобы обновить меню.",
 ].join("\n");
 
@@ -102,6 +104,7 @@ function healthPayload() {
         { receivedAt: entry.receivedAt, listings: entry.listings?.length || 0 },
       ])
     ),
+    gmail: publicGmailHealth(config, state, gmailMonitor?.connected),
     coreSourcesDown: coreSourcesDown(state),
     scanSchedule: scanSchedulePayload(),
     nextScanAt: state.nextScanAt,
@@ -300,7 +303,7 @@ async function runScanCycle(reason = "schedule") {
     const previousBlockedStreak = Number(state.scanHealth?.blockedStreak || 0);
     const result = await scanSources(config, state);
     const newListings = result.listings.filter((item) => !isSeenListing(config, oldSeen, item, now));
-    const challengeBlocked = Boolean(result.blocked);
+    const challengeBlocked = Boolean(result.blocked) && !isGmailHealthy(config, state);
     const listamSource = result.sourceResults?.find((source) => source.source === "listam");
 
     state.seenIds = nextSeenIds(state.seenIds || [], result.listings, config.maxSeenIds);
@@ -482,6 +485,37 @@ async function addForwardedListings(items) {
     await notifySubscribers(config, state, toNotify).catch((error) => console.error(`[forwarded] notify failed: ${error.message}`));
     writeState(config, state);
   }
+  return true;
+}
+
+function startGmailMonitor() {
+  if (!isGmailConfigured(config)) {
+    if (config.gmailImapEnabled) console.warn("[gmail] enabled but GMAIL_USER or GMAIL_APP_PASSWORD is missing");
+    return false;
+  }
+
+  gmailMonitor = new GmailListAmMonitor(config, state, {
+    onListings: async (items) => {
+      gmailIngestQueue = gmailIngestQueue
+        .catch((error) => console.error(`[gmail] previous ingest failed: ${error.message}`))
+        .then(() => addForwardedListings(items));
+      await gmailIngestQueue;
+    },
+    onStateChange: () => writeState(config, state),
+    onHealth: (result) => {
+      updateSourceHealth(state, [
+        {
+          source: "listam_email",
+          listings: Number(result.listings || 0),
+          skipped: 0,
+          blocked: false,
+          error: result.ok ? null : result.error || "Gmail unavailable",
+        },
+      ]);
+    },
+  });
+  gmailMonitor.start();
+  console.log("[gmail] 24/7 List.am email monitor scheduled");
   return true;
 }
 
@@ -754,6 +788,7 @@ async function start() {
   server = createServer();
   await new Promise((resolve) => server.listen(config.port, "0.0.0.0", resolve));
   console.log(`[http] listening on 0.0.0.0:${config.port}`);
+  startGmailMonitor();
   setTimeout(() => maybeSendReleaseNotice().catch((error) => console.error(`[notice] release notice failed: ${error.message}`)), 1000);
 
   if (config.scanOnStart || Number(state.scanHealth?.blockedStreak || 0) > 0) {
@@ -767,6 +802,7 @@ async function shutdown(signal) {
   console.log(`[shutdown] ${signal}`);
   if (nextScanTimer) clearTimeout(nextScanTimer);
   if (telegramPollTimer) clearTimeout(telegramPollTimer);
+  if (gmailMonitor) await gmailMonitor.stop();
   if (server) {
     await new Promise((resolve) => server.close(resolve));
   }

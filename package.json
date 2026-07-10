@@ -14,10 +14,11 @@
     "lint:aggregator": "eslint src/aggregator scripts/realestate.js scripts/realestate-mcp.js tests/aggregator",
     "typecheck:aggregator": "tsc -p tsconfig.aggregator.json",
     "test:aggregator": "node --test tests/aggregator/*.test.js",
+    "test:gmail": "node --test tests/gmail.test.js",
     "verify:aggregator": "npm run lint:aggregator && npm run typecheck:aggregator && npm run test:aggregator",
     "test:full": "node scripts/full_bot_test.js",
     "test:stress": "node scripts/stress_bot_test.js",
-    "test": "npm run check && npm run verify:aggregator && npm run test:full && npm run test:stress"
+    "test": "npm run check && npm run verify:aggregator && npm run test:gmail && npm run test:full && npm run test:stress"
   },
   "engines": {
     "node": ">=20"
@@ -25,7 +26,10 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "better-sqlite3": "^12.11.1",
+    "cheerio": "^1.2.0",
     "fast-xml-parser": "^5.9.3",
+    "imapflow": "^1.4.7",
+    "mailparser": "^3.9.14",
     "playwright": "1.60.0",
     "zod": "^4.4.3"
   },

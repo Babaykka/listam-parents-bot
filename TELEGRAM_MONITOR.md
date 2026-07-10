@@ -83,6 +83,18 @@ DRY_RUN=true SCAN_ON_START=false ./run_telegram_monitor.sh
 
 Если Render не выставил внешний URL автоматически, добавь env var `PUBLIC_URL=https://your-service.onrender.com`.
 
+## Gmail-уведомления List.am 24/7
+
+Это основной постоянный канал для новых объявлений List.am. Бот читает только письма от `post@list.am`, извлекает карточки объявлений, применяет фильтры каждого пользователя и сохраняет UID письма на persistent disk. После перезапуска обработка продолжается с checkpoint, поэтому одно письмо не отправляется дважды.
+
+1. В List.am сохрани нужные поиски и включи email-уведомления об изменениях в сохранённых поисках.
+2. Для отдельного Gmail-аккаунта включи двухэтапную аутентификацию и создай [Google App Password](https://myaccount.google.com/apppasswords).
+3. В Render Dashboard добавь секреты `GMAIL_USER` и `GMAIL_APP_PASSWORD`. Обычный пароль Gmail использовать нельзя.
+4. Убедись, что `GMAIL_IMAP_ENABLED=true`, затем перезапусти сервис.
+5. Открой `/health`: `gmail.configured` и `gmail.connected` должны быть `true`, а `gmail.lastSuccessAt` должен обновляться примерно раз в минуту.
+
+Пароль приложения хранится только в Render Environment и никогда не попадает в Git, HTTP health, логи или сообщения Telegram. IMAP-подключение работает в режиме чтения и не удаляет, не архивирует и не помечает письма.
+
 ## List.am relay
 
 List.am показывает проверку браузера дата-центровым IP Render, но с домашнего компьютера сайт обычно открывается нормально. Поэтому есть relay: локальный скан List.am обычным сканером с последующей отправкой объявлений в бот через авторизованный endpoint `POST /ingest/listings`.

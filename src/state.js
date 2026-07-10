@@ -13,6 +13,14 @@ function defaultState() {
     nextScanAt: null,
     lastUserScanAt: null,
     bot: null,
+    gmail: {
+      lastUid: 0,
+      uidValidity: null,
+      processedMessageIds: [],
+      failStreak: 0,
+      totalMessages: 0,
+      totalListings: 0,
+    },
     scanHealth: {
       blockedStreak: 0,
       lastIssueAlertAt: null,

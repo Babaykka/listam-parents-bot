@@ -47,6 +47,22 @@ services:
         value: "60"
       - key: LISTAM_FEED_URLS
         value: ""
+      - key: GMAIL_IMAP_ENABLED
+        value: "true"
+      - key: GMAIL_USER
+        sync: false
+      - key: GMAIL_APP_PASSWORD
+        sync: false
+      - key: GMAIL_LISTAM_SENDER
+        value: post@list.am
+      - key: GMAIL_MAILBOX
+        value: INBOX
+      - key: GMAIL_POLL_SECONDS
+        value: "60"
+      - key: GMAIL_LOOKBACK_DAYS
+        value: "14"
+      - key: GMAIL_RETRY_MAX_SECONDS
+        value: "900"
       - key: INGEST_TOKEN
         generateValue: true
       - key: ADMIN_CHAT_IDS
