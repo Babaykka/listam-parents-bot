@@ -99,10 +99,6 @@ function loadPending() {
   }
 }
 
-function clearPending() {
-  fs.rmSync(PENDING_FILE, { force: true });
-}
-
 async function runAuth() {
   console.log("[relay] opening a browser window. Solve the List.am check if it appears, then leave the page on listings.");
   const result = await scanListAm(relayScanConfig());
@@ -131,7 +127,9 @@ async function runOnce() {
   }
 
   const data = await pushListings(listings);
-  clearPending();
+  // Keep the buffer: on later blocked runs we re-push it so the server's relay
+  // freshness window keeps resetting. It expires naturally once loadPending()
+  // deems it older than relayMaxAgeMinutes, and a fresh scan overwrites it.
   console.log(`[relay] pushed to ${targetUrl}: accepted ${data.accepted}, dropped ${data.dropped}`);
 }
 
