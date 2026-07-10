@@ -38,6 +38,7 @@ function testConfig(overrides = {}) {
     listamFeedUrls: [],
     ingestToken: "",
     relayMaxAgeMinutes: 180,
+    imageBackfillPerScan: 12,
     scanIssueAlerts: true,
     scanIssueAlertAfter: 3,
     scanIssueAlertCooldownMinutes: 360,

@@ -156,6 +156,7 @@ function loadConfig() {
     listamFeedUrls: envList("LISTAM_FEED_URLS", []),
     ingestToken: process.env.INGEST_TOKEN || "",
     relayMaxAgeMinutes: envNumber("RELAY_MAX_AGE_MINUTES", 180),
+    imageBackfillPerScan: envNumber("IMAGE_BACKFILL_PER_SCAN", 12),
     scanIssueAlerts: envBool("SCAN_ISSUE_ALERTS", true),
     scanIssueAlertAfter: envNumber("SCAN_ISSUE_ALERT_AFTER", 3),
     scanIssueAlertCooldownMinutes: envNumber("SCAN_ISSUE_ALERT_COOLDOWN_MINUTES", 360),

@@ -13,6 +13,7 @@ const { relayFallbackResult, sanitizeIngestPayload, storeRelayListings } = requi
 const { listingsApiPayload, publicListingView, shortDescription } = require("../src/api");
 const { __test: estateTest } = require("../src/estate");
 const { looksLikeListingPost, parseForwardedListing } = require("../src/forwarded");
+const { extractOgImage, isBackfillEligible } = require("../src/imageBackfill");
 const { __test: listamFeedTest } = require("../src/listamFeed");
 const { __test: listamTest } = require("../src/listam");
 const { __test: myrealtyTest } = require("../src/myrealty");
@@ -334,6 +335,18 @@ async function main() {
   const withoutPhoto = { ...listing(940001, { location: "Avan" }), imageUrl: null };
   const keptPhoto = mergeListings([withPhoto], [withoutPhoto], config).find((item) => item.id === "940001");
   assert.equal(keptPhoto.imageUrl, "https://s.list.am/f/1/2.webp", "existing photo must survive a photo-less re-scan");
+
+  // Image backfill: og:image extraction + source eligibility.
+  assert.equal(
+    extractOgImage('<meta property="og:image" content="https://myrealty.am/images/cc/32/photo_600x460.jpeg" />'),
+    "https://myrealty.am/images/cc/32/photo_600x460.jpeg"
+  );
+  assert.equal(extractOgImage('<meta property="og:image" content="">'), null, "empty og:image (Banali SPA) yields nothing");
+  assert.equal(extractOgImage('<meta property="og:image" content="https://x.am/assets/no-img.jpg">'), null, "placeholder images rejected");
+  assert.equal(isBackfillEligible({ url: "https://myrealty.am/en/x/1", imageUrl: null }), true);
+  assert.equal(isBackfillEligible({ url: "https://myrealty.am/en/x/1", imageUrl: "https://a/b.jpg" }), false, "already has an image");
+  assert.equal(isBackfillEligible({ url: "https://www.list.am/item/1", imageUrl: null }), false, "List.am detail is Cloudflare-blocked, not backfilled");
+  assert.equal(isBackfillEligible({ url: "https://banali.am/en/x", imageUrl: null }), false, "Banali is a SPA with no og:image");
 
   // Price drop is detected across scans and surfaced.
   const priced0 = { ...listing(950001, { priceUsd: 100000, location: "Avan" }) };
@@ -731,6 +744,12 @@ async function main() {
   assert.equal(amdListing.location, "Zovuni");
   assert(amdListing.priceUsd > 100000 && amdListing.priceUsd < 130000, `AMD converted, got ${amdListing.priceUsd}`);
   assert.equal(parseForwardedListing("Просто болтовня без цены и без квартир", config, {}), null);
+  // Armenian-language post (common in FB groups): units in Armenian.
+  const hyPost = parseForwardedListing("Բնակարան Կենտրոն, 2 սենյակ, 60 քմ, 3/5 հարկ, 110.000 USD", config, { fromId: 1, messageId: 9 });
+  assert.equal(hyPost.location, "Kentron");
+  assert.equal(hyPost.areaSqm, 60);
+  assert.equal(hyPost.rooms, 2);
+  assert.equal(hyPost.floor.label, "3/5");
 
   // Forwarding a post to the bot adds it to the catalog via the addListings hook,
   // taking the contact name from the Telegram forward header.

@@ -53,19 +53,19 @@ function compactThousands(raw, fullText) {
 }
 
 function parseArea(text) {
-  const match = String(text || "").match(/(\d{2,4})\s*(?:кв\.?\s*м|квм|м²|м2|m²|m2|sq\.?\s*m|sqm)/i);
+  const match = String(text || "").match(/(\d{2,4})\s*(?:кв\.?\s*м|квм|м²|м2|m²|m2|sq\.?\s*m|sqm|քառ\.?\s*մ|ք\.?\s*մ|քմ)/i);
   const value = match ? Number(match[1]) : null;
   return Number.isFinite(value) && value >= 10 && value <= 100000 ? value : null;
 }
 
 function parseRooms(text) {
-  const match = String(text || "").match(/(\d)\s*(?:комнат|комн|room|rooms|սենյak|-к\b|-комн)/i);
+  const match = String(text || "").match(/(\d)\s*(?:комнат|комн|room|rooms|սենյականոց|սենյակ|-к\b|-комн)/i);
   const value = match ? Number(match[1]) : null;
   return Number.isFinite(value) && value >= 1 && value <= 20 ? value : null;
 }
 
 function parseFloor(text) {
-  const match = String(text || "").match(/(\d{1,2})\s*\/\s*(\d{1,2})\s*(?:этаж|эт\.?|floor)?/i) || String(text || "").match(/(?:этаж|floor)\s*(\d{1,2})\s*\/\s*(\d{1,2})/i);
+  const match = String(text || "").match(/(\d{1,2})\s*\/\s*(\d{1,2})\s*(?:этаж|эт\.?|floor|հարկ)?/i) || String(text || "").match(/(?:этаж|floor|հարկ)\s*(\d{1,2})\s*\/\s*(\d{1,2})/i);
   if (!match) return null;
   const current = Number(match[1]);
   const total = Number(match[2]);

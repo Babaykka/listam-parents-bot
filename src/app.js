@@ -12,6 +12,7 @@ const { scanListAmFeed } = require("./listamFeed");
 const { scanMyRealty } = require("./myrealty");
 const crypto = require("crypto");
 const { relayFallbackResult, sanitizeIngestPayload, storeRelayListings } = require("./ingest");
+const { backfillImages } = require("./imageBackfill");
 const { coreSourcesDown, updateSourceHealth } = require("./sourceHealth");
 const { activeSubscribers, deactivateSubscriber, readState, writeState } = require("./state");
 const {
@@ -346,6 +347,7 @@ async function runScanCycle(reason = "schedule") {
 
     await maybeNotifyScanHealth(config, state, challengeBlocked, result, previousBlockedStreak);
     await maybeNotifyCoreSourceIssue(config, state);
+    await backfillMissingImages();
   } catch (error) {
     console.error(`[scan] failed: ${error.stack || error.message}`);
     state.lastScan = {
@@ -488,6 +490,24 @@ function telegramHooks() {
     scanNow: () => runScanCycle("telegram-command"),
     addListings: (items) => addForwardedListings(items),
   };
+}
+
+// After each scan, fetch og:image for a bounded number of photo-less listings
+// (MyRealty/Estate) so photo coverage fills in without hammering the sources.
+async function backfillMissingImages() {
+  if (config.imageBackfillPerScan <= 0) return;
+  try {
+    const found = await backfillImages(state.listings || [], config, { limit: config.imageBackfillPerScan });
+    const ids = Object.keys(found);
+    if (ids.length === 0) return;
+    for (const item of state.listings) {
+      if (found[item.id]) item.imageUrl = found[item.id];
+    }
+    writeState(config, state);
+    console.log(`[backfill] filled ${ids.length} missing images`);
+  } catch (error) {
+    console.error(`[backfill] failed: ${error.message}`);
+  }
 }
 
 function scheduleNextScan(delayMs = currentScanDelayMinutes() * 60 * 1000) {
