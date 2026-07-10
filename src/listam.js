@@ -423,13 +423,22 @@ async function extractPageItems(page) {
 
 async function scanListAm(config, logger = console) {
   const profileDir = path.join(config.dataDir, "listam-browser-profile");
-  const context = await chromium.launchPersistentContext(profileDir, {
+  const launchOptions = {
     headless: config.headless,
     locale: "en-US",
     viewport: { width: 1440, height: 1200 },
     userAgent:
       "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
-  });
+  };
+  // On the relay machine, point at the real installed Google Chrome (set via
+  // LISTAM_CHROME_PATH). Real Chrome executes Cloudflare's JS challenge natively
+  // and clears it far more often than Playwright's headless-shell. Render never
+  // sets this env, so the server keeps using bundled chromium unchanged.
+  if (config.listamChromePath) {
+    launchOptions.executablePath = config.listamChromePath;
+    delete launchOptions.userAgent; // let real Chrome use its own matching UA
+  }
+  const context = await chromium.launchPersistentContext(profileDir, launchOptions);
 
   const listings = [];
   const skipped = [];
