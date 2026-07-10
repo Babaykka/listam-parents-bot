@@ -395,7 +395,7 @@
   }
 
   function load() {
-    fetch("/api/listings?limit=300").then(function (r) {
+    fetch("/api/listings?limit=2000").then(function (r) {
       if (!r.ok) throw new Error("HTTP " + r.status);
       return r.json();
     }).then(function (data) {

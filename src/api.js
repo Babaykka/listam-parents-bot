@@ -4,7 +4,7 @@ const { mergedSourceEntries } = require("./sourceHealth");
 const { localizeDescription } = require("./localize");
 const { unique } = require("./utils");
 
-const MAX_API_LIMIT = 300;
+const MAX_API_LIMIT = 2000;
 const DEFAULT_API_LIMIT = 120;
 
 // A short, human-ish blurb derived from the listing text — with phones, emails,

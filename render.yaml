@@ -98,7 +98,7 @@ services:
       - key: TELEGRAM_RETRY_MAX_SECONDS
         value: "3"
       - key: MAX_LISTINGS_CACHE
-        value: "1000"
+        value: "3000"
       - key: SEND_INITIAL
         value: "false"
       - key: SCAN_ON_START
