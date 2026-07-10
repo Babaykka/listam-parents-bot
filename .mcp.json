@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "armenia-realestate": {
+      "command": "node",
+      "args": ["scripts/realestate-mcp.js"],
+      "env": {
+        "AGGREGATOR_CONFIG": "config/aggregator.json",
+        "AGGREGATOR_DATABASE": "data/realestate.sqlite",
+        "AGGREGATOR_CACHE_DIR": "data/aggregator-cache",
+        "AGGREGATOR_EXPORT_DIR": "exports"
+      }
+    }
+  }
+}

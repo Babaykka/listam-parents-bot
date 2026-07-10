@@ -596,6 +596,86 @@ class AggregatorStorage {
     });
   }
 
+  searchListings(filters = {}) {
+    const conditions = [];
+    const values = [];
+    const addExact = (column, value) => {
+      if (value === undefined || value === null || value === '') return;
+      conditions.push(`${column} = ?`);
+      values.push(value);
+    };
+    const addMinimum = (column, value) => {
+      if (value === undefined || value === null || value === '') return;
+      conditions.push(`${column} >= ?`);
+      values.push(Number(value));
+    };
+    const addMaximum = (column, value) => {
+      if (value === undefined || value === null || value === '') return;
+      conditions.push(`${column} <= ?`);
+      values.push(Number(value));
+    };
+
+    addExact('source', filters.source);
+    addExact('status', filters.status);
+    addExact('operation_type', filters.operationType);
+    addExact('property_type', filters.propertyType);
+    addExact('city', filters.city);
+    addExact('district', filters.district);
+    addExact('currency', filters.currency);
+    addMinimum('price_value', filters.priceMin);
+    addMaximum('price_value', filters.priceMax);
+    addMinimum('area_m2', filters.areaMin);
+    addMaximum('area_m2', filters.areaMax);
+    addMinimum('rooms', filters.roomsMin);
+    addMaximum('rooms', filters.roomsMax);
+
+    if (filters.query) {
+      const escaped = String(filters.query).trim().toLowerCase()
+        .replaceAll('\\', '\\\\')
+        .replaceAll('%', '\\%')
+        .replaceAll('_', '\\_');
+      if (escaped) {
+        conditions.push(`LOWER(
+          COALESCE(title, '') || ' ' || COALESCE(description, '') || ' ' ||
+          COALESCE(raw_text, '') || ' ' || COALESCE(address_raw, '')
+        ) LIKE ? ESCAPE '\\'`);
+        values.push(`%${escaped}%`);
+      }
+    }
+
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const orderBy = {
+      newest: 'COALESCE(published_at, updated_at, first_seen_at) DESC, id DESC',
+      price_asc: 'price_value IS NULL, price_value ASC, id DESC',
+      price_desc: 'price_value IS NULL, price_value DESC, id DESC',
+      area_desc: 'area_m2 IS NULL, area_m2 DESC, id DESC',
+    }[filters.sort || 'newest'];
+    if (!orderBy) throw new Error(`Unsupported listing sort: ${filters.sort}`);
+    const limit = Math.min(Math.max(Number(filters.limit) || 50, 1), 500);
+    const offset = Math.max(Number(filters.offset) || 0, 0);
+    /** @type {any} */
+    const totalRow = this.db.prepare(`SELECT COUNT(*) AS count FROM listings ${where}`).get(...values);
+    /** @type {any[]} */
+    const rows = this.db.prepare(`
+      SELECT * FROM listings ${where}
+      ORDER BY ${orderBy}
+      LIMIT ? OFFSET ?
+    `).all(...values, limit, offset);
+    return {
+      total: totalRow.count,
+      count: rows.length,
+      limit,
+      offset,
+      listings: rows.map((row) => ({ ...deserializeListing(row), database_id: row.id })),
+    };
+  }
+
+  getListingById(databaseId) {
+    /** @type {any} */
+    const row = this.db.prepare('SELECT * FROM listings WHERE id = ?').get(Number(databaseId));
+    return row ? { ...deserializeListing(row), database_id: row.id } : null;
+  }
+
   validateStoredListings() {
     /** @type {any[]} */
     const rows = this.db.prepare('SELECT id, * FROM listings ORDER BY id').all();

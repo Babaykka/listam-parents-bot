@@ -4,6 +4,7 @@
 
 - существующий Telegram-бот запускается командой `npm start`;
 - отдельный агрегатор собирает разрешённые данные, нормализует объявления, хранит историю и экспортирует SQLite/JSONL/CSV.
+- локальный MCP-сервер даёт Claude Code/Desktop инструменты поиска, crawl, отчёта и экспорта поверх того же ядра.
 
 Агрегатор не обходит CAPTCHA, WAF, авторизацию или ограничения площадок. Если условия источника запрещают автоматический сбор, адаптер останавливается до сетевого запроса и фиксирует причину.
 
@@ -31,6 +32,14 @@ node scripts/realestate.js report
 node scripts/realestate.js export --format jsonl
 node scripts/realestate.js export --format csv
 ```
+
+MCP-сервер:
+
+```bash
+npm run mcp
+```
+
+Для Claude Code уже добавлен проектный [.mcp.json](.mcp.json). Инструменты и настройка Claude Desktop описаны в [docs/mcp.md](docs/mcp.md).
 
 Полный разрешённый запуск:
 
@@ -105,7 +114,9 @@ src/aggregator/storage.js       SQLite, версии, checkpoints, дублик�
 src/aggregator/runner.js        ограниченный и возобновляемый обход
 src/aggregator/normalization.js нормализация hy/ru/en и валют
 src/aggregator/exporter.js      JSONL и CSV
+src/aggregator/mcp/             официальный MCP SDK, tools и безопасный service layer
 scripts/realestate.js           CLI
+scripts/realestate-mcp.js       MCP stdio entrypoint
 ```
 
 Инструкция по расширению: [docs/adding-source.md](docs/adding-source.md). Полная схема: [docs/data-schema.md](docs/data-schema.md).

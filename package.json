@@ -9,8 +9,9 @@
     "relay": "node scripts/listam_relay.js",
     "relay:auth": "node scripts/listam_relay.js auth",
     "aggregate": "node scripts/realestate.js",
+    "mcp": "node scripts/realestate-mcp.js",
     "check": "find src scripts -name '*.js' -print0 | xargs -0 -n1 node --check",
-    "lint:aggregator": "eslint src/aggregator scripts/realestate.js tests/aggregator",
+    "lint:aggregator": "eslint src/aggregator scripts/realestate.js scripts/realestate-mcp.js tests/aggregator",
     "typecheck:aggregator": "tsc -p tsconfig.aggregator.json",
     "test:aggregator": "node --test tests/aggregator/*.test.js",
     "verify:aggregator": "npm run lint:aggregator && npm run typecheck:aggregator && npm run test:aggregator",
@@ -22,6 +23,7 @@
     "node": ">=20"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "better-sqlite3": "^12.11.1",
     "fast-xml-parser": "^5.9.3",
     "playwright": "1.60.0",

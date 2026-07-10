@@ -108,6 +108,41 @@ test('configuration sync preserves a runtime blocked status until a successful r
   }
 });
 
+test('bounded catalog search supports structured filters, text, sorting, and database ids', () => {
+  const storage = createStorage();
+  try {
+    storage.upsertListing(makeListing({ source_listing_id: '1001', price_value: 120000 }), 'run');
+    storage.upsertListing(makeListing({
+      source_listing_id: '1002',
+      canonical_url: 'https://www.estate.am/en/example-d1002',
+      source_url: 'https://www.estate.am/en/example-d1002',
+      contact_url: 'https://www.estate.am/en/example-d1002',
+      district: 'Kentron',
+      title: 'Compact apartment in Kentron',
+      description: 'Apartment near Republic Square',
+      raw_text: 'Apartment near Republic Square, 55 m2, 2 rooms, 90000 USD',
+      area_m2: 55,
+      rooms: 2,
+      price_value: 90000,
+    }), 'run');
+
+    const result = storage.searchListings({
+      query: 'Republic Square',
+      propertyType: 'apartment',
+      priceMax: 100000,
+      sort: 'price_asc',
+      limit: 10,
+    });
+    assert.equal(result.total, 1);
+    assert.equal(result.count, 1);
+    assert.equal(result.listings[0].district, 'Kentron');
+    assert.equal(Number.isInteger(result.listings[0].database_id), true);
+    assert.equal(storage.getListingById(result.listings[0].database_id).source_listing_id, '1002');
+  } finally {
+    storage.close();
+  }
+});
+
 test('exports combined JSONL and CSV and validates stored rows', () => {
   const storage = createStorage();
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'aggregator-export-'));
