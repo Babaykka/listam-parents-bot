@@ -23,6 +23,7 @@ function testConfig(overrides = {}) {
     aiFiltersEnabled: false,
     maxPriceUsd: 120000,
     minPriceUsd: 0,
+    collectAllListings: false,
     minQualityScore: 0,
     minParentScore: 0,
     scanOnStart: false,

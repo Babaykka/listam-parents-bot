@@ -141,6 +141,7 @@ function loadConfig() {
 
     maxPriceUsd: envNumber("MAX_PRICE_USD", 120000),
     minPriceUsd: envNumber("MIN_PRICE_USD", 0),
+    collectAllListings: envBool("COLLECT_ALL_LISTINGS", true),
     minQualityScore,
     minParentScore: minQualityScore,
     scanOnStart: envBool("SCAN_ON_START", true),
@@ -190,7 +191,7 @@ function loadConfig() {
     sendInitial: envBool("SEND_INITIAL", false),
     requireKnownLocation: !envBool("ALLOW_UNKNOWN_LOCATION", false),
     maxSeenIds: envNumber("MAX_SEEN_IDS", 30000),
-    maxListingsCache: envNumber("MAX_LISTINGS_CACHE", 1000),
+    maxListingsCache: envNumber("MAX_LISTINGS_CACHE", 20000),
     telegramBatchSize: envNumber("TELEGRAM_BATCH_SIZE", 6),
     telegramSendDelayMs: envNumber("TELEGRAM_SEND_DELAY_MS", 80),
     telegramRetryMaxSeconds: envNumber("TELEGRAM_RETRY_MAX_SECONDS", 3),

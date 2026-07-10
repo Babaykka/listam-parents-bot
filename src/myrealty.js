@@ -125,7 +125,8 @@ function parseCard(card, config) {
   if (!/FOR SALE/i.test(stripHtml(html.match(/item-type show-on-list[\s\S]*?<span>([^<]+)/)?.[1] || ""))) return null;
 
   const priceUsd = parseNumber(html.match(/item-price[^>]*>[\s\S]*?([\d,]+)/)?.[1]);
-  if (!priceUsd || priceUsd > config.maxPriceUsd || priceUsd < config.minPriceUsd) return null;
+  if (!priceUsd) return null;
+  if (!config.collectAllListings && (priceUsd > config.maxPriceUsd || priceUsd < config.minPriceUsd)) return null;
 
   const address = stripHtml(html.match(/item-address[^>]*>[\s\S]*?<\/i>\s*([^<]+)/)?.[1] || "");
   const location = parseLocation(address, config);

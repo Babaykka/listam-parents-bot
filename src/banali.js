@@ -80,6 +80,7 @@ function imageUrl(post) {
 }
 
 function priceBucketsForConfig(config) {
+  if (config.collectAllListings) return PRICE_BUCKETS.map((bucket) => bucket.value);
   const min = Number(config.minPriceUsd || 0);
   const max = Number(config.maxPriceUsd || 150000);
   return PRICE_BUCKETS.filter((bucket) => bucket.max >= min && bucket.min <= max).map((bucket) => bucket.value);
@@ -184,7 +185,8 @@ function parsePost(post, config) {
   if (post.deal && post.deal !== "sell") return null;
 
   const price = parsePrice(post, config);
-  if (!price || price.priceUsd > config.maxPriceUsd || price.priceUsd < config.minPriceUsd) return null;
+  if (!price) return null;
+  if (!config.collectAllListings && (price.priceUsd > config.maxPriceUsd || price.priceUsd < config.minPriceUsd)) return null;
 
   const location = parseLocation(post, config);
   if (config.requireKnownLocation && !location) return null;
@@ -283,24 +285,28 @@ function searchDefinitions(config) {
   for (const category of config.categories) {
     const propertyType = category.key === "house" ? "house" : category.key === "apartment" ? "apartment" : null;
     if (!propertyType) continue;
+    const yerevanFilters = {
+      deal: "sell",
+      state_id: ["1"],
+      property_type: [propertyType],
+    };
+    const nearbyFilters = {
+      deal: "sell",
+      property_type: [propertyType],
+    };
+    if (!config.collectAllListings) {
+      yerevanFilters.price = price;
+      nearbyFilters.price = price;
+    }
     searches.push({
       category: category.key,
       scope: "yerevan",
-      filters: {
-        deal: "sell",
-        state_id: ["1"],
-        property_type: [propertyType],
-        price,
-      },
+      filters: yerevanFilters,
     });
     searches.push({
       category: category.key,
       scope: "nearby",
-      filters: {
-        deal: "sell",
-        property_type: [propertyType],
-        price,
-      },
+      filters: nearbyFilters,
     });
   }
   return searches;

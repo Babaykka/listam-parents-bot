@@ -228,7 +228,7 @@ function parseEntry(entry, config) {
 
   const price = parsePrice(title, summary, config);
   if (!price || !price.priceUsd) return null;
-  if (!config.estateCollectAll && (price.priceUsd > config.maxPriceUsd || price.priceUsd < config.minPriceUsd)) return null;
+  if (!config.estateCollectAll && !config.collectAllListings && (price.priceUsd > config.maxPriceUsd || price.priceUsd < config.minPriceUsd)) return null;
 
   const location = parseLocation(`${title} ${summary}`, config);
   if (!config.estateCollectAll) {

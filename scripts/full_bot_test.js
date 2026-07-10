@@ -36,6 +36,8 @@ async function main() {
   assert.match(renderYaml, /key: BANALI_PAGES_PER_CATEGORY\s*\n\s*value: "8"/);
   assert.match(renderYaml, /key: LISTAM_QUICK_CHALLENGE_MAX_SECONDS\s*\n\s*value: "8"/);
   assert.match(renderYaml, /key: LISTAM_FEED_URLS\s*\n\s*value: ""/);
+  assert.match(renderYaml, /key: COLLECT_ALL_LISTINGS\s*\n\s*value: "true"/);
+  assert.match(renderYaml, /key: MAX_LISTINGS_CACHE\s*\n\s*value: "20000"/);
   const state = readState(config);
   state.listings = [
     listing(100001, { kindKey: "apartment", location: "Avan", priceUsd: 90000, rooms: 2 }),
@@ -76,6 +78,16 @@ async function main() {
   assert(parsed.publishedAt, "publishedAt should be parsed from listing text");
   assert.equal(parsed.publishedAtPrecision, "datetime");
   assert.equal(parsed.imageUrl, "https://s.list.am/f/123/12345678.webp", "thumbnail must be kept and upgraded to https");
+  const expensiveListamRaw = {
+    href: "https://www.list.am/item/987655",
+    text: "$300,000 3 room apartment, 90 sq.m., 2/9 floor Arabkir, Yerevan",
+  };
+  assert.equal(listamTest.parseItem(expensiveListamRaw, config.categories[0], config), null, "legacy collection cap still works when requested");
+  assert.equal(
+    listamTest.parseItem(expensiveListamRaw, config.categories[0], { ...config, collectAllListings: true }).priceUsd,
+    300000,
+    "complete collection stores listings above the user's default budget"
+  );
   assert.equal(listamTest.normalizeImageUrl("//s.list.am/f/1/2.webp"), "https://s.list.am/f/1/2.webp", "protocol-relative thumbnails must resolve to https");
   assert.equal(listamTest.normalizeImageUrl("http://img.list.am/a/b.jpg"), "https://img.list.am/a/b.jpg");
   assert.equal(listamTest.normalizeImageUrl("data:image/gif;base64,AAAA"), null, "placeholder data URIs must be dropped");
@@ -300,6 +312,8 @@ async function main() {
     banaliTest.priceBucketsForConfig({ minPriceUsd: 0, maxPriceUsd: 120000 }),
     ["usd~lt_40000", "usd~gte_40000-lte_60000", "usd~gte_60001-lte_80000", "usd~gte_80001-lte_100000", "usd~gte_100001-lte_150000"]
   );
+  assert.equal(banaliTest.priceBucketsForConfig({ collectAllListings: true }).length, 7);
+  assert.equal("price" in banaliTest.searchDefinitions({ ...config, collectAllListings: true })[0].filters, false);
 
   const banaliOriginal = listing("banali:D100", {
     kindKey: "apartment",
@@ -607,6 +621,32 @@ async function main() {
   assert(apartmentsOnly.listings.every((item) => item.kindKey === "apartment" && item.areaSqm >= 70 && item.priceUsd <= 100000));
   assert.equal(apartmentsOnly.listings[0].id, "r1", "value sort must put the bargain first");
   assert.equal(listingsApiPayload(apiState, config, { limit: 2 }, rankingNow).listings.length, 2);
+  const secondApiPage = listingsApiPayload(apiState, config, { limit: 2, offset: 2 }, rankingNow);
+  assert.equal(secondApiPage.offset, 2);
+  assert.equal(secondApiPage.returned, 2);
+  assert.equal(secondApiPage.hasMore, true);
+  assert.equal(listingsApiPayload(apiState, config, { q: "avan" }, rankingNow).listings.every((item) => item.location === "Avan"), true);
+  const richFilterState = {
+    listings: [
+      { ...listing("910001", { kindKey: "house", priceUsd: 115000, areaSqm: 120, rooms: 4, landSqm: 500, location: "Avan", condition: "ready", elevator: true }), imageUrl: "https://s.list.am/filter-1.webp" },
+      { ...listing("910002", { kindKey: "house", priceUsd: 165000, areaSqm: 180, rooms: 5, landSqm: 900, location: "Dzoraghbyur", condition: "needs_work", elevator: false }), imageUrl: null },
+      { ...listing("910003", { kindKey: "apartment", priceUsd: 85000, areaSqm: 60, rooms: 2, location: "Kentron", condition: "ready", elevator: true }), imageUrl: "https://s.list.am/filter-3.webp" },
+    ],
+    lastScan: { at: rankingNow.toISOString(), sources: [] },
+    scanHealth: { sources: {} },
+  };
+  const richFilters = listingsApiPayload(
+    richFilterState,
+    config,
+    { kind: "house", minPrice: 100000, maxPrice: 130000, minArea: 100, maxArea: 150, minRooms: 3, maxDistance: 20, minLand: 400, withPhoto: "1", condition: "ready", elevator: "1" },
+    rankingNow
+  );
+  assert.deepEqual(richFilters.listings.map((item) => item.id), ["910001"], "advanced catalog filters must run before pagination");
+  assert.deepEqual(
+    listingsApiPayload(richFilterState, config, { ids: "910002,910003" }, rankingNow).listings.map((item) => item.id).sort(),
+    ["910002", "910003"],
+    "favorites can request exact listing IDs"
+  );
   const apiView = publicListingView({ ...banaliOriginal, rawText: "secret raw", imageUrl: "https://banali.am/storage/x.jpg", floor: { current: 2, total: 9, label: "2/9" }, contactName: "Ани", contactPhone: "+374 10 111222" });
   assert.equal(apiView.rawText, undefined);
   assert.equal(apiView.floorLabel, "2/9");
@@ -645,6 +685,12 @@ async function main() {
   assert.match(webappHtml, /class="desc"/, "cards render a short description");
   assert.match(webappHtml, /id="search"/, "catalog has a search box");
   assert.match(webappHtml, /contact-phone/, "cards render a tappable contact phone");
+  assert.match(webappHtml, /URLSearchParams/, "catalog filters are sent to the server");
+  assert.match(webappHtml, /объявлен/, "source chips use plain-language listing counts");
+  assert.doesNotMatch(webappHtml, /спарсено|получено/, "source chips avoid technical collection terms");
+  assert.match(webappHtml, /id="filterDialog"/, "catalog has a compact advanced-filter sheet");
+  assert.match(webappHtml, /type="range"/, "catalog exposes touch-friendly range controls");
+  assert.doesNotMatch(webappHtml, /limit=2000/, "catalog is paginated instead of truncating at 2,000 rows");
 
   await handleTelegramUpdate(config, state, update("/start", 101));
   assert.equal(activeSubscribers(state, config).length, 1);

@@ -5,8 +5,8 @@ const { isGmailConfigured } = require("./gmail");
 const { localizeDescription } = require("./localize");
 const { unique } = require("./utils");
 
-const MAX_API_LIMIT = 2000;
-const DEFAULT_API_LIMIT = 120;
+const MAX_API_LIMIT = 500;
+const DEFAULT_API_LIMIT = 100;
 
 // A short, human-ish blurb derived from the listing text — with phones, emails,
 // URLs and PII stripped, plus scraper noise (slug paths, snake_case codes,
@@ -91,12 +91,48 @@ function applyQueryFilters(listings, query = {}) {
     const location = String(query.location);
     result = result.filter((item) => item.location === location);
   }
+  const minPrice = numberParam(query.minPrice, 0, 100000000);
+  if (minPrice) result = result.filter((item) => Number(item.priceUsd || 0) >= minPrice);
   const maxPrice = numberParam(query.maxPrice, 1000, 100000000);
   if (maxPrice) result = result.filter((item) => Number(item.priceUsd || 0) <= maxPrice);
   const minArea = numberParam(query.minArea, 1, 100000);
   if (minArea) result = result.filter((item) => Number(item.areaSqm || 0) >= minArea);
+  const maxArea = numberParam(query.maxArea, 1, 100000);
+  if (maxArea) result = result.filter((item) => Number(item.areaSqm || 0) <= maxArea);
   const minRooms = numberParam(query.minRooms, 1, 30);
   if (minRooms) result = result.filter((item) => Number(item.rooms || 0) >= minRooms);
+  const maxDistance = numberParam(query.maxDistance, 1, 240);
+  if (maxDistance) result = result.filter((item) => Number.isFinite(Number(item.minutesToCenter)) && Number(item.minutesToCenter) <= maxDistance);
+  const minLand = numberParam(query.minLand, 1, 1000000);
+  if (minLand) result = result.filter((item) => Number(item.landSqm || 0) >= minLand);
+  if (query.withPhoto === "1" || query.withPhoto === "true") {
+    result = result.filter((item) => Boolean(item.imageUrl));
+  }
+  if (["ready", "partial", "needs_work"].includes(query.condition)) {
+    result = result.filter((item) => item.condition === query.condition);
+  }
+  if (query.elevator === "1" || query.elevator === "true") {
+    result = result.filter((item) => item.elevator === true);
+  }
+  const ids = String(query.ids || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .slice(0, 500);
+  if (ids.length > 0) {
+    const allowedIds = new Set(ids);
+    result = result.filter((item) => allowedIds.has(String(item.id)));
+  }
+  const search = String(query.q || "").trim().toLowerCase().slice(0, 100);
+  if (search) {
+    result = result.filter((item) =>
+      [item.title, item.location, item.rawText, item.sourceLabel]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(search)
+    );
+  }
   return result;
 }
 
@@ -108,6 +144,8 @@ function sortListings(listings, sort) {
     sorted.sort((a, b) => Number(a.priceUsd || 0) - Number(b.priceUsd || 0));
   } else if (sort === "price_desc") {
     sorted.sort((a, b) => Number(b.priceUsd || 0) - Number(a.priceUsd || 0));
+  } else if (sort === "area_desc") {
+    sorted.sort((a, b) => Number(b.areaSqm || 0) - Number(a.areaSqm || 0));
   } else {
     sorted.sort(compareListingActivity);
   }
@@ -126,19 +164,26 @@ function listingsApiPayload(state, config, query = {}, now = new Date()) {
   const visible = visibleListings(state.listings || []);
   const filtered = sortListings(applyQueryFilters(visible, query), query.sort);
   const limit = numberParam(query.limit, 1, MAX_API_LIMIT) || DEFAULT_API_LIMIT;
+  const offset = numberParam(query.offset, 0, 1000000) || 0;
+  const page = filtered.slice(offset, offset + limit);
 
   return {
     updatedAt: state.lastScan?.at || state.updatedAt || null,
     nextScanAt: state.nextScanAt || null,
     scanIntervalMinutes: config.scanIntervalMinutes,
     total: filtered.length,
-    freshLast24h: freshCount(visible, now),
+    catalogTotal: visible.length,
+    freshLast24h: freshCount(filtered, now),
+    offset,
+    returned: page.length,
+    hasMore: offset + page.length < filtered.length,
     locations: unique(visible.map((item) => item.location)).sort(),
     sources: mergedSourceEntries(state).map((entry) => {
       const gmailSetupRequired = entry.source === "listam" && config.gmailImapEnabled && !isGmailConfigured(config);
       return {
         label: entry.label,
         listings: entry.listings,
+        parsedListings: entry.catalogListings ?? entry.listings,
         catalogListings: entry.catalogListings ?? entry.listings,
         lastScanListings: entry.lastScanListings ?? entry.listings,
         lastSuccessAt: entry.lastSuccessAt || null,
@@ -147,7 +192,7 @@ function listingsApiPayload(state, config, query = {}, now = new Date()) {
         statusText: gmailSetupRequired ? "нужно завершить подключение Gmail" : null,
       };
     }),
-    listings: filtered.slice(0, limit).map(publicListingView),
+    listings: page.map(publicListingView),
   };
 }
 

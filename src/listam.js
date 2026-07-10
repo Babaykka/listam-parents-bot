@@ -358,7 +358,8 @@ function normalizeImageUrl(value) {
 function parseItem(raw, category, config) {
   const text = normalizeText(raw.text);
   const price = parsePrice(text, config);
-  if (!price || price.usd > config.maxPriceUsd || price.usd < config.minPriceUsd) return null;
+  if (!price) return null;
+  if (!config.collectAllListings && (price.usd > config.maxPriceUsd || price.usd < config.minPriceUsd)) return null;
 
   const id = raw.href.match(/\/item\/(\d+)/)?.[1];
   if (!id) return null;
@@ -503,7 +504,8 @@ async function scanListAm(config, logger = console) {
     for (const category of config.categories) {
       for (let pageNo = 1; pageNo <= config.scanPagesPerCategory; pageNo += 1) {
         const pagePart = pageNo === 1 ? "" : `/${pageNo}`;
-        const url = `https://www.list.am/en/category/${category.id}${pagePart}?price2=${config.maxPriceUsd}&crc=1`;
+        const query = config.collectAllListings ? "" : `?price2=${config.maxPriceUsd}&crc=1`;
+        const url = `https://www.list.am/en/category/${category.id}${pagePart}${query}`;
         logger.log(`[scan] ${category.label} page ${pageNo}`);
 
         try {

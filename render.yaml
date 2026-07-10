@@ -29,6 +29,8 @@ services:
         value: "true"
       - key: MAX_PRICE_USD
         value: "120000"
+      - key: COLLECT_ALL_LISTINGS
+        value: "true"
       - key: MIN_QUALITY_SCORE
         value: "0"
       - key: LISTAM_CATEGORY_IDS
@@ -118,7 +120,7 @@ services:
       - key: TELEGRAM_RETRY_MAX_SECONDS
         value: "3"
       - key: MAX_LISTINGS_CACHE
-        value: "3000"
+        value: "20000"
       - key: SEND_INITIAL
         value: "false"
       - key: SCAN_ON_START

@@ -3,7 +3,13 @@ const { mergeListings } = require("./listingStore");
 const { normalizeText, unique } = require("./utils");
 
 const MAX_INGEST_LISTINGS = 500;
-const ALLOWED_SOURCES = new Set(["listam"]);
+const SOURCE_RULES = {
+  listam: { label: "List.am", host: /(^|\.)list\.am$/i },
+  banali: { label: "Banali.am", host: /(^|\.)banali\.am$/i },
+  myrealty: { label: "MyRealty", host: /(^|\.)myrealty\.am$/i },
+  estate: { label: "Estate.am", host: /(^|\.)estate\.am$/i },
+};
+const ALLOWED_SOURCES = new Set(Object.keys(SOURCE_RULES));
 
 function cleanString(value, maxLength = 400) {
   return normalizeText(value).slice(0, maxLength);
@@ -29,14 +35,20 @@ function cleanFloor(value) {
   return { current, total, label: cleanString(value.label, 12) || `${current || "?"}${total ? `/${total}` : ""}` };
 }
 
-function sanitizeIngestListing(raw, config) {
+function sanitizeIngestListing(raw, config, source = "listam") {
   if (!raw || typeof raw !== "object") return null;
   const id = cleanString(raw.id, 64);
   const url = cleanString(raw.url, 300);
   const priceUsd = cleanNumber(raw.priceUsd, 1000, 10000000);
   const kindKey = raw.kindKey === "house" ? "house" : raw.kindKey === "apartment" ? "apartment" : null;
   if (!id || !priceUsd || !kindKey) return null;
-  if (!/^https:\/\/[\w.-]+\//i.test(url)) return null;
+  let target;
+  try {
+    target = new URL(url);
+  } catch {
+    return null;
+  }
+  if (target.protocol !== "https:" || !SOURCE_RULES[source]?.host.test(target.hostname)) return null;
 
   const location = cleanString(raw.location, 60);
   if (location && !(location in config.minutesToCenter)) return null;
@@ -49,8 +61,8 @@ function sanitizeIngestListing(raw, config) {
 
   return {
     id,
-    source: "listam",
-    sourceLabel: "List.am",
+    source,
+    sourceLabel: SOURCE_RULES[source].label,
     kind: kindKey === "house" ? "Дом" : "Квартира",
     kindKey,
     title: cleanString(raw.title, 200),
@@ -91,8 +103,8 @@ function sanitizeIngestPayload(payload, config) {
   const listings = [];
   let dropped = 0;
   for (const raw of rawListings.slice(0, MAX_INGEST_LISTINGS)) {
-    const item = sanitizeIngestListing(raw, config);
-    if (!item || (maxPrice > 0 && item.priceUsd > maxPrice * 2)) {
+    const item = sanitizeIngestListing(raw, config, source);
+    if (!item || (!config.collectAllListings && maxPrice > 0 && item.priceUsd > maxPrice * 2)) {
       dropped += 1;
       continue;
     }

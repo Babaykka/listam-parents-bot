@@ -43,65 +43,98 @@
   /* Take only surfaces + accent from Telegram; keep our own readable text/border
      tokens, because Telegram Desktop's hint color is often too dim to read. */
   html.tg {
-    --surface: var(--tg-theme-bg-color, var(--surface));
-    --card: var(--tg-theme-secondary-bg-color, var(--card));
-    --text: var(--tg-theme-text-color, var(--text));
-    --accent: var(--tg-theme-link-color, var(--accent));
+    --surface: var(--tg-theme-bg-color, #fcfcfb);
+    --card: var(--tg-theme-secondary-bg-color, #ffffff);
+    --text: var(--tg-theme-text-color, #0b0b0b);
+    --accent: var(--tg-theme-link-color, #2a78d6);
+  }
+  @media (prefers-color-scheme: dark) {
+    html.tg {
+      --surface: var(--tg-theme-bg-color, #17181c);
+      --card: var(--tg-theme-secondary-bg-color, #21232a);
+      --text: var(--tg-theme-text-color, #ffffff);
+      --accent: var(--tg-theme-link-color, #5aa2f0);
+    }
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   body {
     margin: 0;
     background: var(--surface);
     color: var(--text);
     font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    padding-bottom: 40px;
+    padding-bottom: calc(40px + env(safe-area-inset-bottom));
   }
-  .wrap { max-width: 760px; margin: 0 auto; padding: 0 14px; }
+  body.dialog-open { overflow: hidden; }
+  button, select, input { font: inherit; }
+  button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-visible {
+    outline: 3px solid color-mix(in srgb, var(--accent) 35%, transparent);
+    outline-offset: 2px;
+  }
+  .wrap { max-width: 800px; margin: 0 auto; padding: 0 14px; }
 
   header { padding: 14px 0 6px; }
   h1 { font-size: 19px; margin: 0 0 2px; }
   .sub { color: var(--text-2); font-size: 13px; }
 
   .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 12px 0 4px; }
-  .stat { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+  .stat { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
   .stat .num { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; }
   .stat .lbl { font-size: 12px; color: var(--text-2); margin-top: 1px; }
 
   .sources { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 2px; }
-  .src { font-size: 12.5px; color: var(--text); background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 4px 11px; }
+  .src { font-size: 12.5px; color: var(--text); background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 5px 9px; }
   .src b { color: var(--text); font-weight: 600; }
   .src.warn { border-color: var(--warn); }
   .src .cnt { color: var(--text-2); }
 
-  .filters {
+  .browse-tools {
     position: sticky; top: 0; z-index: 5;
-    background: var(--surface);
-    padding: 10px 0 8px;
-    display: flex; gap: 6px; overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
+    background: color-mix(in srgb, var(--surface) 94%, transparent);
+    backdrop-filter: blur(12px);
+    padding: 8px 0;
+    border-bottom: 1px solid var(--line);
   }
-  .filters::-webkit-scrollbar { display: none; }
-  .chip {
-    flex: 0 0 auto;
-    border: 1px solid var(--line);
-    background: var(--chip);
-    color: var(--text);
-    border-radius: 999px;
-    padding: 7px 13px;
-    font-size: 13.5px;
-    cursor: pointer;
-    white-space: nowrap;
+  .tool-row { display: grid; grid-template-columns: minmax(0, 1fr) 42px; gap: 8px; }
+  .tool-row + .tool-row { margin-top: 8px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .segmented {
+    display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+    min-width: 0; background: var(--chip); border: 1px solid var(--line); border-radius: 8px; padding: 3px;
   }
-  .chip.on { background: var(--chip-on); color: var(--chip-on-text); border-color: var(--chip-on); }
-  select.chip { appearance: none; -webkit-appearance: none; }
+  .segmented button {
+    min-width: 0; min-height: 36px; border: 0; border-radius: 6px; padding: 6px 8px;
+    background: transparent; color: var(--text-2); cursor: pointer; white-space: nowrap;
+  }
+  .segmented button.on { background: var(--card); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.12); font-weight: 600; }
+  .tool-button, .tool-select {
+    min-height: 42px; border: 1px solid var(--line); border-radius: 8px;
+    background: var(--card); color: var(--text); cursor: pointer;
+  }
+  .tool-button { padding: 8px 12px; font-weight: 600; }
+  .tool-button.on { border-color: var(--accent); color: var(--accent); }
+  .fav-tool { width: 42px; padding: 0; font-size: 20px; line-height: 1; }
+  .tool-select { width: 100%; padding: 8px 30px 8px 10px; }
+  .filter-count {
+    display: inline-grid; place-items: center; min-width: 20px; height: 20px; margin-left: 6px;
+    padding: 0 5px; border-radius: 999px; background: var(--accent); color: #fff; font-size: 12px;
+  }
+  .active-filters { display: flex; gap: 6px; overflow-x: auto; padding: 10px 0 1px; scrollbar-width: none; }
+  .active-filters::-webkit-scrollbar { display: none; }
+  .active-filter {
+    flex: 0 0 auto; min-height: 34px; border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
+    border-radius: 8px; padding: 6px 9px; background: var(--card); color: var(--text); font-size: 12.5px; cursor: pointer;
+  }
+  .active-filter span { color: var(--text-3); margin-left: 5px; }
+  .results-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 12px 0 4px; }
+  .results-head strong { font-size: 15px; }
+  .results-head span { color: var(--text-2); font-size: 12.5px; text-align: right; }
 
   .cards { display: grid; grid-template-columns: 1fr; gap: 10px; margin-top: 8px; }
   @media (min-width: 560px) { .cards { grid-template-columns: 1fr 1fr; } }
   a.card {
     display: block; text-decoration: none; color: inherit;
     background: var(--card); border: 1px solid var(--line);
-    border-radius: 14px; padding: 13px 14px; overflow: hidden;
+    border-radius: 8px; padding: 13px 14px; overflow: hidden;
   }
   .ph {
     margin: -13px -14px 11px; aspect-ratio: 16 / 9;
@@ -126,7 +159,7 @@
   .search {
     width: 100%; margin: 10px 0 2px; box-sizing: border-box;
     border: 1px solid var(--line); background: var(--card); color: var(--text);
-    border-radius: 12px; padding: 11px 14px; font-size: 15px; -webkit-appearance: none;
+    border-radius: 8px; padding: 11px 14px; font-size: 15px; -webkit-appearance: none;
   }
   .search::placeholder { color: var(--text-3); }
   .drop {
@@ -158,14 +191,91 @@
   .more {
     margin: 16px auto 0; display: block;
     background: var(--chip); color: var(--text);
-    border: 1px solid var(--line); border-radius: 12px;
+    border: 1px solid var(--line); border-radius: 8px;
     padding: 11px 22px; font-size: 14.5px; cursor: pointer;
   }
   .note { text-align: center; color: var(--text-2); font-size: 13.5px; padding: 26px 10px; }
-  .skeleton { height: 108px; border-radius: 14px; border: 1px solid var(--line);
+  .skeleton { height: 108px; border-radius: 8px; border: 1px solid var(--line);
     background: linear-gradient(100deg, var(--card) 40%, var(--chip) 50%, var(--card) 60%);
     background-size: 200% 100%; animation: sh 1.2s infinite linear; }
   @keyframes sh { to { background-position: -200% 0; } }
+
+  .filter-dialog {
+    width: min(460px, 100%); max-height: min(760px, 92dvh); margin: auto;
+    padding: 0; border: 1px solid var(--line); border-radius: 8px;
+    background: var(--card); color: var(--text); box-shadow: 0 16px 50px rgba(0,0,0,.28);
+  }
+  .filter-dialog::backdrop { background: rgba(0,0,0,.48); }
+  .filter-sheet { display: flex; flex-direction: column; max-height: min(760px, 92dvh); }
+  .sheet-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 14px 16px 10px; border-bottom: 1px solid var(--line);
+  }
+  .sheet-head h2 { margin: 0; font-size: 18px; }
+  .icon-button {
+    width: 38px; height: 38px; border: 1px solid var(--line); border-radius: 8px;
+    background: var(--card); color: var(--text); font-size: 24px; line-height: 1; cursor: pointer;
+  }
+  .sheet-body { overflow-y: auto; padding: 2px 16px 18px; }
+  .filter-section { padding: 15px 0; border-bottom: 1px solid var(--line); }
+  .filter-section:last-child { border-bottom: 0; }
+  .filter-label { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 10px; }
+  .filter-label strong { font-size: 14.5px; }
+  .filter-label output { color: var(--text-2); font-size: 13px; text-align: right; }
+  .range-wrap { position: relative; height: 32px; }
+  input[type="range"] {
+    width: 100%; height: 32px; margin: 0; accent-color: var(--accent); cursor: pointer;
+  }
+  .dual-range input[type="range"] {
+    position: absolute; inset: 0; pointer-events: none; appearance: none; -webkit-appearance: none;
+    background: transparent;
+  }
+  .dual-range input[type="range"]::-webkit-slider-runnable-track { height: 4px; background: transparent; }
+  .dual-range input[type="range"]::-moz-range-track { height: 4px; background: transparent; }
+  .dual-range input[type="range"]::-webkit-slider-thumb {
+    appearance: none; -webkit-appearance: none; width: 24px; height: 24px; margin-top: -10px;
+    border: 2px solid var(--accent); border-radius: 50%; background: var(--card); pointer-events: auto;
+  }
+  .dual-range input[type="range"]::-moz-range-thumb {
+    width: 22px; height: 22px; border: 2px solid var(--accent); border-radius: 50%; background: var(--card); pointer-events: auto;
+  }
+  .dual-track { position: absolute; left: 0; right: 0; top: 14px; height: 4px; border-radius: 2px; background: var(--line); }
+  .dual-fill { position: absolute; top: 14px; height: 4px; border-radius: 2px; background: var(--accent); }
+  #priceMin { z-index: 3; }
+  #priceMax { z-index: 2; }
+  .field-select {
+    width: 100%; min-height: 44px; border: 1px solid var(--line); border-radius: 8px;
+    padding: 9px 10px; background: var(--card); color: var(--text);
+  }
+  .room-options { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .room-options button { min-height: 40px; }
+  details.more-filters { padding: 0; }
+  details.more-filters summary { cursor: pointer; font-weight: 600; list-style-position: inside; padding: 15px 0 8px; }
+  .check-row {
+    min-height: 46px; display: flex; align-items: center; justify-content: space-between; gap: 14px;
+    border-bottom: 1px solid var(--line); cursor: pointer;
+  }
+  .check-row:last-child { border-bottom: 0; }
+  .check-row input { width: 20px; height: 20px; accent-color: var(--accent); }
+  .sheet-actions {
+    display: grid; grid-template-columns: minmax(0, .75fr) minmax(0, 1.25fr); gap: 8px;
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: var(--card);
+  }
+  .sheet-actions button { min-height: 46px; border-radius: 8px; cursor: pointer; font-weight: 600; }
+  .reset-button { border: 1px solid var(--line); background: var(--card); color: var(--text); }
+  .apply-button { border: 1px solid var(--chip-on); background: var(--chip-on); color: var(--chip-on-text); }
+
+  @media (max-width: 520px) {
+    .filter-dialog { width: 100%; max-width: none; max-height: 92dvh; margin: auto 0 0; border-radius: 8px 8px 0 0; border-bottom: 0; }
+    .filter-sheet { max-height: 92dvh; }
+    .stats { gap: 6px; }
+    .stat { padding: 9px; }
+    .stat .num { font-size: 20px; }
+  }
+  @media (min-width: 680px) {
+    .browse-tools { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr); gap: 8px; }
+    .tool-row + .tool-row { margin-top: 0; }
+  }
 </style>
 </head>
 <body>
@@ -183,27 +293,31 @@
 
   <input type="search" id="search" class="search" placeholder="Поиск: район, улица, ключевое слово…" autocomplete="off">
 
-  <div class="filters" id="filters">
-    <button class="chip on" data-kind="">Все</button>
-    <button class="chip" data-kind="apartment">Квартиры</button>
-    <button class="chip" data-kind="house">Дома</button>
-    <button class="chip" data-fav="1">❤ Избранное</button>
-    <button class="chip" data-minarea="70">От 70 м²</button>
-    <select class="chip" id="sortSel">
-      <option value="fresh">Сначала свежие</option>
-      <option value="value">Сначала выгодные</option>
-      <option value="price_asc">Сначала дешевле</option>
-      <option value="price_desc">Сначала дороже</option>
-      <option value="area_desc">Больше площадь</option>
-    </select>
-    <select class="chip" id="districtSel"><option value="">Все районы</option></select>
-    <select class="chip" id="priceSel">
-      <option value="">Любая цена</option>
-      <option value="80000">до $80k</option>
-      <option value="100000">до $100k</option>
-      <option value="120000">до $120k</option>
-      <option value="150000">до $150k</option>
-    </select>
+  <div class="browse-tools" id="browseTools">
+    <div class="tool-row">
+      <div class="segmented" id="kindTabs" role="group" aria-label="Тип недвижимости">
+        <button class="on" type="button" data-kind="" aria-pressed="true">Все</button>
+        <button type="button" data-kind="apartment" aria-pressed="false">Квартиры</button>
+        <button type="button" data-kind="house" aria-pressed="false">Дома</button>
+      </div>
+      <button class="tool-button fav-tool" id="favToggle" type="button" aria-label="Показать избранное" aria-pressed="false">♡</button>
+    </div>
+    <div class="tool-row">
+      <button class="tool-button" id="openFilters" type="button">Фильтры <span class="filter-count" id="filterCount" hidden>0</span></button>
+      <select class="tool-select" id="sortSel" aria-label="Сортировка объявлений">
+        <option value="fresh">Сначала свежие</option>
+        <option value="value">Сначала выгодные</option>
+        <option value="price_asc">Сначала дешевле</option>
+        <option value="price_desc">Сначала дороже</option>
+        <option value="area_desc">Больше площадь</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="active-filters" id="activeFilters" aria-label="Выбранные фильтры" hidden></div>
+  <div class="results-head">
+    <strong id="resultCount" aria-live="polite">Загружаю объявления…</strong>
+    <span id="resultHint"></span>
   </div>
 
   <div class="cards" id="cards">
@@ -213,11 +327,83 @@
   <div class="note" id="note" hidden></div>
 </div>
 
+<dialog class="filter-dialog" id="filterDialog" aria-labelledby="filterTitle">
+  <form class="filter-sheet" id="filterForm">
+    <div class="sheet-head">
+      <h2 id="filterTitle">Фильтры</h2>
+      <button class="icon-button" id="closeFilters" type="button" aria-label="Закрыть фильтры">×</button>
+    </div>
+    <div class="sheet-body">
+      <section class="filter-section">
+        <div class="filter-label">
+          <strong>Цена</strong>
+          <output id="priceOutput">Любая</output>
+        </div>
+        <div class="range-wrap dual-range">
+          <div class="dual-track"></div>
+          <div class="dual-fill" id="priceFill"></div>
+          <input id="priceMin" type="range" min="0" max="500000" step="5000" value="0" aria-label="Минимальная цена">
+          <input id="priceMax" type="range" min="0" max="500000" step="5000" value="500000" aria-label="Максимальная цена">
+        </div>
+      </section>
+
+      <section class="filter-section">
+        <div class="filter-label">
+          <strong>Площадь</strong>
+          <output id="areaOutput">Любая</output>
+        </div>
+        <input id="areaMin" type="range" min="0" max="300" step="5" value="0" aria-label="Минимальная площадь">
+      </section>
+
+      <section class="filter-section">
+        <div class="filter-label"><strong>Комнаты</strong><output id="roomsOutput">Любое количество</output></div>
+        <div class="segmented room-options" id="roomOptions" role="group" aria-label="Минимальное количество комнат">
+          <button class="on" type="button" data-rooms="0" aria-pressed="true">Любое</button>
+          <button type="button" data-rooms="1" aria-pressed="false">1+</button>
+          <button type="button" data-rooms="2" aria-pressed="false">2+</button>
+          <button type="button" data-rooms="3" aria-pressed="false">3+</button>
+          <button type="button" data-rooms="4" aria-pressed="false">4+</button>
+        </div>
+      </section>
+
+      <section class="filter-section">
+        <div class="filter-label"><strong>До центра</strong><output id="distanceOutput">Любое расстояние</output></div>
+        <input id="distanceMax" type="range" min="5" max="45" step="5" value="45" aria-label="Максимальное время до центра">
+      </section>
+
+      <section class="filter-section">
+        <div class="filter-label"><strong>Район или город</strong></div>
+        <select class="field-select" id="filterLocation" aria-label="Район или город">
+          <option value="">Все районы и города</option>
+        </select>
+      </section>
+
+      <section class="filter-section" id="landSection" hidden>
+        <div class="filter-label"><strong>Участок</strong><output id="landOutput">Любой</output></div>
+        <input id="landMin" type="range" min="0" max="1500" step="50" value="0" aria-label="Минимальная площадь участка">
+      </section>
+
+      <details class="more-filters" id="moreFilters">
+        <summary>Дополнительно</summary>
+        <label class="check-row"><span>Только с фото</span><input id="withPhoto" type="checkbox"></label>
+        <label class="check-row"><span>С ремонтом</span><input id="readyOnly" type="checkbox"></label>
+        <label class="check-row"><span>Только с лифтом</span><input id="elevatorOnly" type="checkbox"></label>
+      </details>
+    </div>
+    <div class="sheet-actions">
+      <button class="reset-button" id="resetFilters" type="button">Сбросить</button>
+      <button class="apply-button" id="applyFilters" type="submit">Показать объявления</button>
+    </div>
+  </form>
+</dialog>
+
 <script>
 (function () {
   var tg = window.Telegram && window.Telegram.WebApp;
   if (tg) {
-    document.documentElement.classList.add("tg");
+    var telegramTheme = tg.themeParams || {};
+    var telegramBg = String(telegramTheme.bg_color || getComputedStyle(document.documentElement).getPropertyValue("--tg-theme-bg-color") || "").trim();
+    if (telegramBg) document.documentElement.classList.add("tg");
     try { tg.ready(); tg.expand(); } catch (e) {}
   }
 
@@ -225,11 +411,34 @@
   var meta = null;
   var shown = 0;
   var PAGE = 20;
-  var state = { kind: "", sort: "fresh", minArea: 0, location: "", maxPrice: 0, favOnly: false, query: "" };
-
+  var API_PAGE = 250;
+  var requestSeq = 0;
   var $ = function (id) { return document.getElementById(id); };
 
   var FAV_KEY = "dom_favorites_v1";
+  var FILTER_KEY = "dom_catalog_filters_v2";
+  var DEFAULT_STATE = {
+    kind: "", sort: "fresh", minPrice: 0, maxPrice: 0, minArea: 0, maxArea: 0,
+    minRooms: 0, maxDistance: 0, minLand: 0, location: "", withPhoto: false,
+    condition: "", elevator: false, favOnly: false, query: "",
+  };
+  function loadFilterState() {
+    try {
+      var saved = JSON.parse(localStorage.getItem(FILTER_KEY) || "{}");
+      return Object.assign({}, DEFAULT_STATE, saved, { favOnly: false, query: "" });
+    } catch (e) {
+      return Object.assign({}, DEFAULT_STATE);
+    }
+  }
+  var state = loadFilterState();
+  function saveFilterState() {
+    try {
+      var saved = Object.assign({}, state);
+      delete saved.favOnly;
+      delete saved.query;
+      localStorage.setItem(FILTER_KEY, JSON.stringify(saved));
+    } catch (e) {}
+  }
   function loadFavs() {
     try { return new Set(JSON.parse(localStorage.getItem(FAV_KEY) || "[]")); } catch (e) { return new Set(); }
   }
@@ -243,6 +452,13 @@
   }
 
   function money(v) { return "$" + Number(v || 0).toLocaleString("en-US"); }
+  function countText(value) {
+    var number = Number(value || 0);
+    var mod10 = number % 10;
+    var mod100 = number % 100;
+    var word = mod10 === 1 && mod100 !== 11 ? "объявление" : (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14) ? "объявления" : "объявлений");
+    return number.toLocaleString("ru-RU") + " " + word;
+  }
 
   function rel(iso) {
     if (!iso) return "";
@@ -268,9 +484,17 @@
   function matches(item) {
     if (state.favOnly && !favs.has(item.id)) return false;
     if (state.kind && item.kindKey !== state.kind) return false;
+    if (state.minPrice && Number(item.priceUsd || 0) < state.minPrice) return false;
+    if (state.maxPrice && Number(item.priceUsd || 0) > state.maxPrice) return false;
     if (state.minArea && !(Number(item.areaSqm) >= state.minArea)) return false;
+    if (state.maxArea && !(Number(item.areaSqm) <= state.maxArea)) return false;
+    if (state.minRooms && !(Number(item.rooms) >= state.minRooms)) return false;
+    if (state.maxDistance && !(Number.isFinite(Number(item.minutesToCenter)) && Number(item.minutesToCenter) <= state.maxDistance)) return false;
+    if (state.minLand && !(Number(item.landSqm) >= state.minLand)) return false;
     if (state.location && item.location !== state.location) return false;
-    if (state.maxPrice && Number(item.priceUsd) > state.maxPrice) return false;
+    if (state.withPhoto && !item.imageUrl) return false;
+    if (state.condition && item.condition !== state.condition) return false;
+    if (state.elevator && item.elevator !== true) return false;
     if (state.query) {
       var hay = ((item.location || "") + " " + (item.description || "") + " " + (item.kind || "") + " " + (item.sourceLabel || "")).toLowerCase();
       if (hay.indexOf(state.query) === -1) return false;
@@ -351,6 +575,50 @@
       + "</a>";
   }
 
+  function priceFilterLabel() {
+    if (state.minPrice && state.maxPrice) return money(state.minPrice) + " — " + money(state.maxPrice);
+    if (state.minPrice) return "Цена от " + money(state.minPrice);
+    if (state.maxPrice) return "Цена до " + money(state.maxPrice);
+    return "";
+  }
+
+  function activeFilterItems() {
+    return [
+      priceFilterLabel() ? { key: "price", label: priceFilterLabel() } : null,
+      state.minArea ? { key: "minArea", label: "От " + state.minArea + " м²" } : null,
+      state.maxArea ? { key: "maxArea", label: "До " + state.maxArea + " м²" } : null,
+      state.minRooms ? { key: "minRooms", label: "От " + state.minRooms + " комн." } : null,
+      state.maxDistance ? { key: "maxDistance", label: "До центра " + state.maxDistance + " мин" } : null,
+      state.location ? { key: "location", label: state.location } : null,
+      state.minLand ? { key: "minLand", label: "Участок от " + state.minLand + " м²" } : null,
+      state.withPhoto ? { key: "withPhoto", label: "С фото" } : null,
+      state.condition ? { key: "condition", label: "С ремонтом" } : null,
+      state.elevator ? { key: "elevator", label: "С лифтом" } : null,
+    ].filter(Boolean);
+  }
+
+  function renderControls() {
+    document.querySelectorAll("#kindTabs [data-kind]").forEach(function (button) {
+      var active = button.dataset.kind === state.kind;
+      button.classList.toggle("on", active);
+      button.setAttribute("aria-pressed", String(active));
+    });
+    $("sortSel").value = state.sort;
+    $("favToggle").classList.toggle("on", state.favOnly);
+    $("favToggle").setAttribute("aria-pressed", String(state.favOnly));
+    $("favToggle").textContent = state.favOnly ? "♥" : "♡";
+
+    var filters = activeFilterItems();
+    $("filterCount").hidden = filters.length === 0;
+    $("filterCount").textContent = filters.length;
+    $("openFilters").classList.toggle("on", filters.length > 0);
+    $("activeFilters").hidden = filters.length === 0;
+    $("activeFilters").innerHTML = filters.map(function (filter) {
+      return '<button class="active-filter" type="button" data-clear-filter="' + esc(filter.key) + '" aria-label="Убрать фильтр ' + esc(filter.label) + '">' + esc(filter.label) + "<span>×</span></button>";
+    }).join("");
+    $("landSection").hidden = state.kind === "apartment";
+  }
+
   function render(reset) {
     var items = sorted(all.filter(matches));
     if (reset) shown = 0;
@@ -365,7 +633,7 @@
         ph.innerHTML = '<span class="glyph">' + glyph + "</span>" + (badge ? badge.outerHTML : "");
       }, { once: true });
     });
-    $("more").hidden = shown >= items.length;
+    $("more").hidden = shown >= items.length && !(meta && meta.hasMore);
     $("note").hidden = items.length > 0;
     if (items.length === 0) {
       $("note").textContent = state.favOnly
@@ -378,35 +646,66 @@
     if (!meta) return;
     $("updated").textContent = meta.updatedAt ? "Обновлено " + rel(meta.updatedAt) + " · проверяю каждые " + meta.scanIntervalMinutes + " мин" : "Первая проверка скоро";
     $("stats").hidden = false;
-    $("statTotal").textContent = meta.total;
-    $("statFresh").textContent = meta.freshLast24h;
+    $("statTotal").textContent = Number(meta.total || 0).toLocaleString("ru-RU");
+    $("statFresh").textContent = Number(meta.freshLast24h || 0).toLocaleString("ru-RU");
+    $("resultCount").textContent = countText(meta.total);
+    $("resultHint").textContent = activeFilterItems().length && meta.catalogTotal != null
+      ? "из " + Number(meta.catalogTotal).toLocaleString("ru-RU") + " в каталоге"
+      : "";
     var ok = meta.sources.filter(function (s) { return s.ok; }).length;
     $("statSources").textContent = ok + "/" + meta.sources.length;
     $("sources").innerHTML = meta.sources.map(function (s) {
       var catalog = s.catalogListings == null ? s.listings : s.catalogListings;
-      var scanned = s.lastScanListings == null ? s.listings : s.lastScanListings;
       var tail = s.ok
-        ? ' <span class="cnt">· каталог ' + catalog + " · получено " + scanned + "</span>"
-        : ' <span class="cnt">· каталог ' + catalog + " · " + esc(s.statusText || "обновление задержано") + "</span>";
+        ? ' <span class="cnt">· ' + countText(catalog) + "</span>"
+        : ' <span class="cnt">· ' + countText(catalog) + " · " + esc(s.statusText || "обновление задержано") + "</span>";
       return '<span class="src' + (s.ok ? "" : " warn") + '">' + (s.ok ? "✅" : "⏳") + " <b>" + esc(s.label) + "</b>" + tail + "</span>";
     }).join("");
-    var sel = $("districtSel");
+    var sel = $("filterLocation");
+    while (sel.options.length > 1) sel.remove(1);
     meta.locations.forEach(function (loc) {
       var o = document.createElement("option");
       o.value = loc; o.textContent = loc;
       sel.appendChild(o);
     });
+    sel.value = state.location;
+    renderControls();
   }
 
-  function load() {
-    fetch("/api/listings?limit=2000").then(function (r) {
+  function load(reset) {
+    reset = reset !== false;
+    var seq = ++requestSeq;
+    var params = new URLSearchParams();
+    params.set("limit", API_PAGE);
+    params.set("offset", reset ? 0 : all.length);
+    if (state.kind) params.set("kind", state.kind);
+    if (state.minPrice) params.set("minPrice", state.minPrice);
+    if (state.maxPrice) params.set("maxPrice", state.maxPrice);
+    if (state.minArea) params.set("minArea", state.minArea);
+    if (state.maxArea) params.set("maxArea", state.maxArea);
+    if (state.minRooms) params.set("minRooms", state.minRooms);
+    if (state.maxDistance) params.set("maxDistance", state.maxDistance);
+    if (state.minLand) params.set("minLand", state.minLand);
+    if (state.location) params.set("location", state.location);
+    if (state.withPhoto) params.set("withPhoto", "1");
+    if (state.condition) params.set("condition", state.condition);
+    if (state.elevator) params.set("elevator", "1");
+    if (state.favOnly) params.set("ids", Array.from(favs).slice(0, 500).join(",") || "__none__");
+    if (state.sort) params.set("sort", state.sort);
+    if (state.query) params.set("q", state.query);
+    if (reset) {
+      all = [];
+      shown = 0;
+    }
+    fetch("/api/listings?" + params.toString()).then(function (r) {
       if (!r.ok) throw new Error("HTTP " + r.status);
       return r.json();
     }).then(function (data) {
+      if (seq !== requestSeq) return;
       meta = data;
-      all = data.listings || [];
+      all = reset ? (data.listings || []) : all.concat(data.listings || []);
       renderMeta();
-      render(true);
+      render(reset);
     }).catch(function (e) {
       $("cards").innerHTML = "";
       $("note").hidden = false;
@@ -414,33 +713,163 @@
     });
   }
 
+  var PRICE_CEILING = 500000;
+  var DISTANCE_CEILING = 45;
+
+  function setRoomChoice(value) {
+    var rooms = Number(value || 0);
+    document.querySelectorAll("#roomOptions [data-rooms]").forEach(function (button) {
+      var active = Number(button.dataset.rooms) === rooms;
+      button.classList.toggle("on", active);
+      button.setAttribute("aria-pressed", String(active));
+    });
+    $("roomsOutput").textContent = rooms ? "От " + rooms : "Любое количество";
+  }
+
+  function updatePriceOutput(changed) {
+    var min = Number($("priceMin").value);
+    var max = Number($("priceMax").value);
+    if (min > max) {
+      if (changed === "min") $("priceMax").value = min;
+      else $("priceMin").value = max;
+      min = Number($("priceMin").value);
+      max = Number($("priceMax").value);
+    }
+    var effectiveMax = max >= PRICE_CEILING ? 0 : max;
+    $("priceOutput").textContent = min && effectiveMax ? money(min) + " — " + money(effectiveMax) : (min ? "От " + money(min) : (effectiveMax ? "До " + money(effectiveMax) : "Любая"));
+    var left = min / PRICE_CEILING * 100;
+    var right = max / PRICE_CEILING * 100;
+    $("priceFill").style.left = left + "%";
+    $("priceFill").style.width = Math.max(0, right - left) + "%";
+  }
+
+  function updateRangeOutputs() {
+    var area = Number($("areaMin").value);
+    var distance = Number($("distanceMax").value);
+    var land = Number($("landMin").value);
+    $("areaOutput").textContent = area ? "От " + area + " м²" : "Любая";
+    $("distanceOutput").textContent = distance >= DISTANCE_CEILING ? "Любое расстояние" : "До " + distance + " мин";
+    $("landOutput").textContent = land ? "От " + land + " м²" : "Любой";
+  }
+
+  function syncDialogFromState() {
+    $("priceMin").value = Number(state.minPrice || 0);
+    $("priceMax").value = Number(state.maxPrice || PRICE_CEILING);
+    $("areaMin").value = Number(state.minArea || 0);
+    $("distanceMax").value = Number(state.maxDistance || DISTANCE_CEILING);
+    $("landMin").value = Number(state.minLand || 0);
+    $("filterLocation").value = state.location || "";
+    $("withPhoto").checked = Boolean(state.withPhoto);
+    $("readyOnly").checked = state.condition === "ready";
+    $("elevatorOnly").checked = Boolean(state.elevator);
+    $("moreFilters").open = Boolean(state.withPhoto || state.condition || state.elevator);
+    setRoomChoice(state.minRooms);
+    updatePriceOutput();
+    updateRangeOutputs();
+  }
+
+  function applyDialogToState() {
+    var maxPrice = Number($("priceMax").value);
+    state.minPrice = Number($("priceMin").value) || 0;
+    state.maxPrice = maxPrice >= PRICE_CEILING ? 0 : maxPrice;
+    state.minArea = Number($("areaMin").value) || 0;
+    state.minRooms = Number(document.querySelector("#roomOptions button.on")?.dataset.rooms || 0);
+    var maxDistance = Number($("distanceMax").value);
+    state.maxDistance = maxDistance >= DISTANCE_CEILING ? 0 : maxDistance;
+    state.location = $("filterLocation").value;
+    state.minLand = state.kind === "apartment" ? 0 : Number($("landMin").value) || 0;
+    state.withPhoto = $("withPhoto").checked;
+    state.condition = $("readyOnly").checked ? "ready" : "";
+    state.elevator = $("elevatorOnly").checked;
+    saveFilterState();
+    renderControls();
+  }
+
+  function resetDialog() {
+    $("priceMin").value = 0;
+    $("priceMax").value = PRICE_CEILING;
+    $("areaMin").value = 0;
+    $("distanceMax").value = DISTANCE_CEILING;
+    $("landMin").value = 0;
+    $("filterLocation").value = "";
+    $("withPhoto").checked = false;
+    $("readyOnly").checked = false;
+    $("elevatorOnly").checked = false;
+    $("moreFilters").open = false;
+    setRoomChoice(0);
+    updatePriceOutput();
+    updateRangeOutputs();
+  }
+
+  function clearFilter(key) {
+    if (key === "price") { state.minPrice = 0; state.maxPrice = 0; }
+    else if (key in state) state[key] = typeof state[key] === "boolean" ? false : (typeof state[key] === "number" ? 0 : "");
+    saveFilterState();
+    renderControls();
+    load(true);
+  }
+
   var searchTimer = null;
   $("search").addEventListener("input", function () {
     var value = this.value.trim().toLowerCase();
     clearTimeout(searchTimer);
-    searchTimer = setTimeout(function () { state.query = value; render(true); }, 200);
+    searchTimer = setTimeout(function () { state.query = value; load(true); }, 250);
   });
 
-  $("filters").addEventListener("click", function (event) {
-    var btn = event.target.closest("button.chip");
-    if (!btn) return;
-    if (btn.dataset.kind !== undefined) {
-      state.kind = btn.dataset.kind;
-      document.querySelectorAll("[data-kind]").forEach(function (b) { b.classList.toggle("on", b === btn); });
-    }
-    if (btn.dataset.fav) {
-      state.favOnly = btn.classList.toggle("on");
-    }
-    if (btn.dataset.minarea) {
-      var onA = btn.classList.toggle("on");
-      state.minArea = onA ? Number(btn.dataset.minarea) : 0;
-    }
-    render(true);
+  $("kindTabs").addEventListener("click", function (event) {
+    var button = event.target.closest("[data-kind]");
+    if (!button) return;
+    state.kind = button.dataset.kind;
+    if (state.kind === "apartment") state.minLand = 0;
+    saveFilterState();
+    renderControls();
+    load(true);
   });
-  $("sortSel").addEventListener("change", function () { state.sort = this.value; this.classList.toggle("on", this.value !== "fresh"); render(true); });
-  $("districtSel").addEventListener("change", function () { state.location = this.value; this.classList.toggle("on", !!this.value); render(true); });
-  $("priceSel").addEventListener("change", function () { state.maxPrice = Number(this.value) || 0; this.classList.toggle("on", !!this.value); render(true); });
-  $("more").addEventListener("click", function () { render(false); });
+  $("favToggle").addEventListener("click", function () {
+    state.favOnly = !state.favOnly;
+    renderControls();
+    load(true);
+  });
+  $("sortSel").addEventListener("change", function () {
+    state.sort = this.value;
+    saveFilterState();
+    load(true);
+  });
+  $("openFilters").addEventListener("click", function () {
+    syncDialogFromState();
+    document.body.classList.add("dialog-open");
+    $("filterDialog").showModal();
+  });
+  $("closeFilters").addEventListener("click", function () { $("filterDialog").close(); });
+  $("filterDialog").addEventListener("close", function () { document.body.classList.remove("dialog-open"); });
+  $("filterDialog").addEventListener("click", function (event) {
+    if (event.target === this) this.close();
+  });
+  $("filterForm").addEventListener("submit", function (event) {
+    event.preventDefault();
+    applyDialogToState();
+    $("filterDialog").close();
+    load(true);
+  });
+  $("resetFilters").addEventListener("click", resetDialog);
+  $("priceMin").addEventListener("input", function () { updatePriceOutput("min"); });
+  $("priceMax").addEventListener("input", function () { updatePriceOutput("max"); });
+  $("areaMin").addEventListener("input", updateRangeOutputs);
+  $("distanceMax").addEventListener("input", updateRangeOutputs);
+  $("landMin").addEventListener("input", updateRangeOutputs);
+  $("roomOptions").addEventListener("click", function (event) {
+    var button = event.target.closest("[data-rooms]");
+    if (button) setRoomChoice(button.dataset.rooms);
+  });
+  $("activeFilters").addEventListener("click", function (event) {
+    var button = event.target.closest("[data-clear-filter]");
+    if (button) clearFilter(button.dataset.clearFilter);
+  });
+  $("more").addEventListener("click", function () {
+    var items = sorted(all.filter(matches));
+    if (shown < items.length) render(false);
+    else if (meta && meta.hasMore) load(false);
+  });
 
   // Tapping the heart toggles a favourite; tapping the phone calls — both
   // without following the card link to the source listing.
@@ -462,10 +891,11 @@
     var nowOn = favs.has(id);
     fav.classList.toggle("on", nowOn);
     fav.textContent = nowOn ? "♥" : "♡";
-    if (state.favOnly && !nowOn) render(true);
+    if (state.favOnly && !nowOn) load(true);
   });
 
-  load();
+  renderControls();
+  load(true);
 })();
 </script>
 </body>
