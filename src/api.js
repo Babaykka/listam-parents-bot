@@ -1,4 +1,4 @@
-const { compareListingActivity, daysSince } = require("./listingFreshness");
+const { compareListingActivity, listingFreshnessTimestamp } = require("./listingFreshness");
 const { priceDropPercent, visibleListings } = require("./listingStore");
 const { mergedSourceEntries } = require("./sourceHealth");
 const { isGmailConfigured } = require("./gmail");
@@ -155,10 +155,10 @@ function sortListings(listings, sort) {
 
 function freshCount(listings, now = new Date()) {
   return listings.filter((item) => {
-    const published = daysSince(item.publishedAt, now);
-    const updated = daysSince(item.updatedAt, now);
-    const changed = daysSince(item.changeDetectedAt, now);
-    return [published, updated, changed].some((days) => days !== null && days >= 0 && days <= 1);
+    const timestamp = listingFreshnessTimestamp(item);
+    if (timestamp === null) return false;
+    const days = (now.getTime() - timestamp) / 86400000;
+    return days >= 0 && days <= 1;
   }).length;
 }
 

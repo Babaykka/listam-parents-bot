@@ -67,22 +67,31 @@ function sourceActivityTimestamp(item) {
   return timestamps.length > 0 ? Math.max(...timestamps) : null;
 }
 
+// "Fresh" is deliberately simple for users: the publication date wins. When
+// a source does not expose it, use when the bot first added the listing.
+function listingFreshnessTimestamp(item) {
+  const published = Date.parse(item?.publishedAt || "");
+  if (Number.isFinite(published)) return published;
+  const discovered = Date.parse(item?.discoveredAt || item?.scannedAt || "");
+  return Number.isFinite(discovered) ? discovered : null;
+}
+
 function listingActivityValue(item) {
-  const timestamp = sourceActivityTimestamp(item);
+  const timestamp = listingFreshnessTimestamp(item);
   return timestamp === null ? "" : new Date(timestamp).toISOString();
 }
 
 function compareListingActivity(a, b) {
-  const aTime = sourceActivityTimestamp(a);
-  const bTime = sourceActivityTimestamp(b);
+  const aTime = listingFreshnessTimestamp(a);
+  const bTime = listingFreshnessTimestamp(b);
   if (aTime === null && bTime !== null) return 1;
   if (aTime !== null && bTime === null) return -1;
   if (aTime !== bTime) return Number(bTime || 0) - Number(aTime || 0);
   return Number(a.priceUsd || 0) - Number(b.priceUsd || 0);
 }
 
-// Cache retention may use discovery time when a source exposes no dates and no
-// material change was observed. Discovery remains separate from freshness.
+// Cache retention also considers source updates and detected changes so an
+// important revised listing is not evicted even though the UI sorts simply.
 function compareListingStorageActivity(a, b) {
   const aTime = (sourceActivityTimestamp(a) ?? Date.parse(a?.discoveredAt || a?.scannedAt || "")) || 0;
   const bTime = (sourceActivityTimestamp(b) ?? Date.parse(b?.discoveredAt || b?.scannedAt || "")) || 0;
@@ -95,6 +104,7 @@ module.exports = {
   daysSince,
   isSeenListing,
   listingActivityValue,
+  listingFreshnessTimestamp,
   listingSeenKey,
   nextSeenIds,
   shouldNotifyListing,

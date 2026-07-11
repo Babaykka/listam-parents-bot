@@ -660,11 +660,14 @@ async function main() {
   const sourceDatePayload = listingsApiPayload(sourceDateState, config, { sort: "fresh" }, rankingNow);
   assert.deepEqual(
     sourceDatePayload.listings.map((item) => item.id),
-    ["920005", "920002", "920001", "920003", "920004"],
-    "fresh sorting must use publication, source update, or a detected material change and put undated listings last"
+    ["920004", "920001", "920002", "920003", "920005"],
+    "fresh sorting must prefer publication time and fall back to discovery only when publication is missing"
   );
-  assert.equal(sourceDatePayload.freshLast24h, 3, "recent discovery alone must not count, while a detected material change must");
-  assert.equal(sourceDatePayload.listings[0].changeDetectedAt, "2026-07-08T11:30:00.000Z");
+  assert.equal(sourceDatePayload.freshLast24h, 2, "an undated listing discovered today must count as fresh");
+  assert.equal(
+    sourceDatePayload.listings.find((item) => item.id === "920005").changeDetectedAt,
+    "2026-07-08T11:30:00.000Z"
+  );
   const latestSections = telegramTest.groupLatestSections(config, sourceDatePayload.listings, rankingNow);
   const updatedSection = latestSections.find((section) => section.key === "raised");
   assert.equal(updatedSection.title, "Недавно обновлённые");
