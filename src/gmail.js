@@ -73,6 +73,46 @@ function bestCardContainer($, anchor) {
   return best;
 }
 
+function emailSectionText($, anchor) {
+  let node = $(anchor).parent();
+  for (let depth = 0; depth < 6; depth += 1) {
+    const text = normalizeText(node.text());
+    if (text && categoryKey(text) && node.find("a[href*='/item/']").length > 0) return text;
+    const parent = node.parent();
+    if (!parent.length || parent.is("body") || parent.is("html")) break;
+    node = parent;
+  }
+  return "";
+}
+
+function categoryKey(text) {
+  const value = String(text || "").toLowerCase();
+  if (/\b(?:apartment|flat)s?\b|квартир|բնակարան/.test(value)) return "apartment";
+  if (/\b(?:house|home|villa|townhouse)s?\b|коттедж|дач|таунхаус|առանձնատուն/.test(value)
+    || /(?:^|[^\p{L}])дом(?:а|ов)?(?:$|[^\p{L}])/u.test(value)) return "house";
+  return null;
+}
+
+function parseSearchFilterHints(text) {
+  const value = normalizeText(text);
+  const amount = "([\\d\\s,._]+)";
+  const hints = {};
+  const maxPrice = value.match(new RegExp(`(?:price|цена|գին)[^;]{0,40}(?:up to|до|մինչև)\\s*\\$\\s*${amount}`, "i"));
+  const minPrice = value.match(new RegExp(`(?:price|цена|գին)[^;]{0,40}(?:from|от|սկսած)\\s*\\$\\s*${amount}`, "i"));
+  const minArea = value.match(new RegExp(`(?:area|площадь|մակերես)[^;]{0,50}(?:from|от|սկսած)\\s*${amount}\\s*(?:sq\\.?\\s*m\\.?|m[²2]|м[²2]|кв\\.?\\s*м\\.?|ք\\.?\\s*մ\\.?)`, "i"));
+  const maxArea = value.match(new RegExp(`(?:area|площадь|մակերես)[^;]{0,50}(?:up to|до|մինչև)\\s*${amount}\\s*(?:sq\\.?\\s*m\\.?|m[²2]|м[²2]|кв\\.?\\s*м\\.?|ք\\.?\\s*մ\\.?)`, "i"));
+  if (maxPrice) hints.maxPriceUsd = numericValue(maxPrice[1]);
+  if (minPrice) hints.minPriceUsd = numericValue(minPrice[1]);
+  if (minArea) hints.minAreaSqm = numericValue(minArea[1]);
+  if (maxArea) hints.maxAreaSqm = numericValue(maxArea[1]);
+  return Object.fromEntries(Object.entries(hints).filter(([, number]) => Number.isFinite(number) && number > 0));
+}
+
+function numericValue(value) {
+  const number = Number(String(value || "").replace(/[\s,._]/g, ""));
+  return Number.isFinite(number) ? number : null;
+}
+
 function extractHtmlCandidates(html) {
   if (!html) return [];
   const $ = load(String(html));
@@ -85,6 +125,7 @@ function extractHtmlCandidates(html) {
     if (!id) return;
 
     const container = bestCardContainer($, anchor);
+    const sectionText = emailSectionText($, anchor);
     const image = container.find("img").toArray().map((img) =>
       normalizeImageUrl(
         $(img).attr("data-src") ||
@@ -97,6 +138,9 @@ function extractHtmlCandidates(html) {
       href,
       text: normalizeText(container.text()),
       imageUrl: image || null,
+      sectionText,
+      kindKey: categoryKey(sectionText),
+      sourceFilterHints: parseSearchFilterHints(sectionText),
     };
     const previous = byId.get(id);
     if (!previous || candidate.text.length > previous.text.length || (!previous.imageUrl && candidate.imageUrl)) {
@@ -136,6 +180,11 @@ function mergeCandidates(...groups) {
       href: existing.href || candidate.href,
       text: candidate.text.length > existing.text.length ? candidate.text : existing.text,
       imageUrl: existing.imageUrl || candidate.imageUrl || null,
+      sectionText: existing.sectionText || candidate.sectionText || "",
+      kindKey: existing.kindKey || candidate.kindKey || null,
+      sourceFilterHints: Object.keys(existing.sourceFilterHints || {}).length
+        ? existing.sourceFilterHints
+        : candidate.sourceFilterHints || {},
     });
   }
   return Array.from(byId.values());
@@ -152,6 +201,42 @@ function categoryOrder(config, text) {
   return [...categories.filter((item) => item.key === preferred), ...categories.filter((item) => item.key !== preferred)];
 }
 
+function partialEmailListing(candidate, category, message) {
+  const id = candidateId(candidate);
+  if (!id || !candidate.imageUrl || !category) return null;
+  const receivedAt = message?.date ? new Date(message.date).toISOString() : null;
+  return {
+    id,
+    source: "listam",
+    sourceLabel: "List.am",
+    sourceChannel: "email",
+    kind: category.label,
+    kindKey: category.key,
+    title: `Новое объявление List.am: ${category.label.toLowerCase()}`,
+    url: `https://www.list.am/item/${id}`,
+    imageUrl: candidate.imageUrl,
+    priceLabel: "Цена и параметры на List.am",
+    priceUsd: null,
+    areaSqm: null,
+    pricePerSqm: null,
+    rooms: null,
+    floor: null,
+    landSqm: null,
+    location: "",
+    minutesToCenter: null,
+    elevator: null,
+    condition: "unknown",
+    publishedAt: null,
+    publishedAtPrecision: null,
+    rawText: candidate.sectionText || category.label,
+    scannedAt: receivedAt || new Date().toISOString(),
+    emailReceivedAt: receivedAt,
+    qualityScore: 5,
+    detailsPending: true,
+    sourceFilterHints: candidate.sourceFilterHints || {},
+  };
+}
+
 function parseListAmEmail(message, config) {
   const subject = normalizeText(message?.subject);
   const text = normalizeText(message?.text);
@@ -160,15 +245,23 @@ function parseListAmEmail(message, config) {
 
   for (const candidate of candidates.slice(0, MAX_LISTINGS_PER_MESSAGE)) {
     const parseText = normalizeText(candidate.text);
-    for (const category of categoryOrder(config, `${parseText} ${subject}`)) {
+    const orderedCategories = candidate.kindKey
+      ? [config.categories.find((category) => category.key === candidate.kindKey)].filter(Boolean)
+      : categoryOrder(config, `${candidate.sectionText || ""} ${parseText} ${subject}`);
+    let parsed = null;
+    for (const category of orderedCategories) {
       const item = parseListAmItem({ ...candidate, text: parseText }, category, config);
       if (!item) continue;
       item.sourceChannel = "gmail";
       item.emailReceivedAt = message?.date ? new Date(message.date).toISOString() : null;
       if (item.emailReceivedAt) item.scannedAt = item.emailReceivedAt;
-      listings.push(item);
+      parsed = item;
       break;
     }
+    parsed ||= candidate.kindKey
+      ? partialEmailListing(candidate, orderedCategories[0], message)
+      : null;
+    if (parsed) listings.push(parsed);
   }
 
   const seen = new Set();
@@ -372,5 +465,7 @@ module.exports = {
     extractTextCandidates,
     mergeCandidates,
     normalizeAppPassword,
+    categoryKey,
+    parseSearchFilterHints,
   },
 };

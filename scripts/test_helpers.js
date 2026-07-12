@@ -11,6 +11,7 @@ function tempDataDir(prefix) {
 function testConfig(overrides = {}) {
   return {
     dataDir: tempDataDir("listam-bot-test-"),
+    host: "127.0.0.1",
     dryRun: false,
     telegramToken: "test-token",
     telegramFallbackChatId: "",
@@ -47,6 +48,14 @@ function testConfig(overrides = {}) {
     gmailLookbackDays: 14,
     gmailRetryMaxSeconds: 900,
     gmailSocketTimeoutMs: 180000,
+    mailSpoolEnabled: false,
+    mailSpoolDir: "",
+    mailSpoolPollSeconds: 15,
+    mailSpoolRetentionDays: 14,
+    mailSpoolRequireDkim: false,
+    mailSpoolAuthservId: "fizteh-reshit.online",
+    mailSpoolDkimDomain: "list.am",
+    mailSpoolForwardingReady: false,
     ingestToken: "",
     relayMaxAgeMinutes: 180,
     imageBackfillPerScan: 12,

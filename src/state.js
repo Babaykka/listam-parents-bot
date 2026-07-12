@@ -21,6 +21,13 @@ function defaultState() {
       totalMessages: 0,
       totalListings: 0,
     },
+    mailSpool: {
+      totalMessages: 0,
+      totalListings: 0,
+      rejectedMessages: 0,
+      queueDepth: 0,
+      failStreak: 0,
+    },
     scanHealth: {
       blockedStreak: 0,
       lastIssueAlertAt: null,

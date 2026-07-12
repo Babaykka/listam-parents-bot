@@ -1,0 +1,8 @@
+[Unit]
+Description=Check Armenia real-estate bot health
+After=listam-bot.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/listam-bot-healthcheck
+Nice=10

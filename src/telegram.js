@@ -274,7 +274,7 @@ function sourceLabel(item) {
 }
 
 function listingLine(item) {
-  const location = item.location || "локация не распознана";
+  const location = item.location || (item.detailsPending ? "уточняется на List.am" : "локация не распознана");
   const parameters = [
     item.areaSqm ? `${item.areaSqm} м²` : null,
     item.rooms ? `${item.rooms} комн.` : null,
@@ -291,12 +291,14 @@ function listingLine(item) {
   ];
 
   const dropPct = priceDropPercent(item);
+  const priceText = item.priceLabel || (item.priceUsd ? money(item.priceUsd) : "Цена на List.am");
   return [
-    `<b>${escapeHtml(item.kind)} · ${escapeHtml(item.priceLabel)}</b>${dropPct ? ` 🔻 ${escapeHtml(`цена снижена на ${dropPct}%`)}` : ""}`,
+    `<b>${escapeHtml(item.kind)} · ${escapeHtml(priceText)}</b>${dropPct ? ` 🔻 ${escapeHtml(`цена снижена на ${dropPct}%`)}` : ""}`,
     escapeHtml(`Район: ${location}`),
     joinLine("Параметры", parameters),
     joinLine("Цена", priceDetails),
     joinLine("Дополнительно", comfort),
+    item.detailsPending ? "Цена, площадь и адрес откроются на List.am." : null,
     whyGoodLine(item),
     listingDateDetail(item) ? escapeHtml(`Дата: ${listingDateDetail(item)}`) : null,
     sourceLabel(item) ? escapeHtml(`Источник: ${sourceLabel(item)}`) : null,
@@ -399,10 +401,25 @@ function haystack(item) {
 
 function matchesSubscriber(config, subscriber, item) {
   const filters = normalizeFilters(config, subscriber.filters || defaultFilters(config));
+  if (filters.categories?.length && !filters.categories.includes(item.kindKey)) return false;
+  if (filters.excludeSources?.length && filters.excludeSources.includes(listingSourceKey(item))) return false;
+
+  if (item.detailsPending) {
+    const hints = item.sourceFilterHints || {};
+    if (filters.minPriceUsd && (!hints.minPriceUsd || hints.minPriceUsd < filters.minPriceUsd)) return false;
+    if (filters.maxPriceUsd && (!hints.maxPriceUsd || hints.maxPriceUsd > filters.maxPriceUsd)) return false;
+    if (filters.minAreaSqm && (!hints.minAreaSqm || hints.minAreaSqm < filters.minAreaSqm)) return false;
+    if (filters.maxAreaSqm && (!hints.maxAreaSqm || hints.maxAreaSqm > filters.maxAreaSqm)) return false;
+    if (filters.locations?.length || filters.minRooms || filters.maxRooms || filters.minLandSqm || filters.maxLandSqm) return false;
+    if (filters.maxPricePerSqm || filters.minFloor || filters.maxFloor || filters.maxDistanceMinutes) return false;
+    if (filters.elevator !== "any" || filters.condition !== "any") return false;
+    if (filters.keywords.length || filters.excludeKeywords.length) return false;
+    return scoreOf(item) >= filters.minQualityScore;
+  }
+
   if (item.priceUsd > filters.maxPriceUsd) return false;
   if (item.priceUsd < (filters.minPriceUsd || 0)) return false;
   if (scoreOf(item) < filters.minQualityScore) return false;
-  if (filters.categories?.length && !filters.categories.includes(item.kindKey)) return false;
   if (filters.locations?.length && !filters.locations.includes(item.location)) return false;
   if (filters.minRooms && (!item.rooms || item.rooms < filters.minRooms)) return false;
   if (filters.maxRooms && (!item.rooms || item.rooms > filters.maxRooms)) return false;
@@ -418,8 +435,6 @@ function matchesSubscriber(config, subscriber, item) {
   if (filters.elevator === "no" && item.elevator !== false) return false;
   if (filters.condition === "ready" && !["ready", "partial"].includes(item.condition)) return false;
   if (filters.condition === "needs_work" && item.condition !== "needs_work") return false;
-
-  if (filters.excludeSources?.length && filters.excludeSources.includes(listingSourceKey(item))) return false;
 
   const text = haystack(item);
   if (filters.keywords.length && !filters.keywords.every((keyword) => text.includes(keyword.toLowerCase()))) return false;
@@ -682,10 +697,19 @@ function shortFiltersText(config, rawFilters) {
   ].join("\n");
 }
 
-function sourceStatusLine(entry, config) {
+function sourceStatusLine(entry, config, state) {
   const catalog = Number(entry.catalogListings ?? entry.listings ?? 0);
   const scanned = Number(entry.lastScanListings ?? entry.listings ?? 0);
   const lastSuccess = relativeTimeText(entry.lastSuccessAt);
+  if (entry.source === "listam" && config.mailSpoolEnabled && !entry.degraded && !entry.blocked) {
+    const icon = config.mailSpoolForwardingReady ? "✅" : "⏳";
+    const message = config.mailSpoolForwardingReady
+      ? "уведомления List.am поступают автоматически"
+      : Number(state.mailSpool?.totalMessages || 0) > 0
+        ? "последнее письмо обработано, автодоставка настраивается"
+      : "сервер готов принимать уведомления";
+    return `${icon} ${entry.label} — ${message} · в каталоге ${listingsCountText(catalog)}`;
+  }
   if (entry.source === "listam" && config.gmailImapEnabled && (!config.gmailUser || !config.gmailAppPassword)) {
     return `⚠️ ${entry.label} — в каталоге ${listingsCountText(catalog)}; нужно завершить подключение Gmail для новых объявлений`;
   }
@@ -725,7 +749,7 @@ function statusText(config, state) {
 
   if (entries.length > 0) {
     lines.push("", "Источники:");
-    for (const entry of entries) lines.push(sourceStatusLine(entry, config));
+    for (const entry of entries) lines.push(sourceStatusLine(entry, config, state));
   } else if (blockedStreak > 0) {
     lines.push("", "List.am сейчас показывает проверку браузера. Другие источники бот проверяет параллельно.");
   }

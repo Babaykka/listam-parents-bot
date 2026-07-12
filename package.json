@@ -14,7 +14,7 @@
     "lint:aggregator": "eslint src/aggregator scripts/realestate.js scripts/realestate-mcp.js tests/aggregator",
     "typecheck:aggregator": "tsc -p tsconfig.aggregator.json",
     "test:aggregator": "node --test tests/aggregator/*.test.js",
-    "test:gmail": "node --test tests/gmail.test.js",
+    "test:gmail": "node --test tests/gmail.test.js tests/mail-spool.test.js",
     "verify:aggregator": "npm run lint:aggregator && npm run typecheck:aggregator && npm run test:aggregator",
     "test:full": "node scripts/full_bot_test.js",
     "test:stress": "node scripts/stress_bot_test.js",
