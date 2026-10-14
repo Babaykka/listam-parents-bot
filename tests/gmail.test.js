@@ -80,6 +80,32 @@ test("uses the Russian saved-search subject to classify houses", () => {
   assert.equal(items[0].location, "Abovyan");
 });
 
+test("parses image-only cards from the current List.am digest format", () => {
+  const html = `
+    <table><tr><td>
+      <div>Продажа › Квартиры</div>
+      <div>Цена: до $120,000; Общая площадь: от 70 кв.м.</div>
+      <a href="https://www.list.am/item/23976563?ld_src=11"><img src="https://img.list.am/g/100/example.jpg"></a>
+      <a href="https://www.list.am/item/23976605?ld_src=11"><img src="https://img.list.am/g/101/example.jpg"></a>
+      <a href="https://www.list.am/category/60?srt=3">Просмотреть</a>
+    </td></tr></table>`;
+  const items = parseListAmEmail(
+    { subject: "Новые объявления", html, date: new Date("2026-07-12T11:24:07Z") },
+    gmailConfig()
+  );
+
+  assert.equal(items.length, 2);
+  assert.deepEqual(items.map((item) => item.id), ["23976563", "23976605"]);
+  assert.equal(items[0].kindKey, "apartment");
+  assert.equal(items[0].detailsPending, true);
+  assert.equal(items[0].priceUsd, null);
+  assert.equal(items[0].priceLabel, "Цена и параметры на List.am");
+  assert.equal(items[0].imageUrl, "https://img.list.am/g/100/example.jpg");
+  assert.deepEqual(items[0].sourceFilterHints, { maxPriceUsd: 120000, minAreaSqm: 70 });
+  assert.equal(items[0].publishedAt, null);
+  assert.equal(items[0].emailReceivedAt, "2026-07-12T11:24:07.000Z");
+});
+
 test("requires an app password and never exposes it through health", () => {
   const config = gmailConfig();
   assert.equal(isGmailConfigured(config), true);

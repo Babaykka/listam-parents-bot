@@ -10,6 +10,7 @@ const { scanEstate } = require("./estate");
 const { scanListAm } = require("./listam");
 const { scanListAmFeed } = require("./listamFeed");
 const { GmailListAmMonitor, isGmailConfigured, isGmailHealthy, publicGmailHealth } = require("./gmail");
+const { ListAmMailSpoolMonitor, publicMailSpoolHealth } = require("./mailSpool");
 const { scanMyRealty } = require("./myrealty");
 const crypto = require("crypto");
 const { relayFallbackResult, sanitizeIngestPayload, storeBackfillListings, storeRelayListings } = require("./ingest");
@@ -32,6 +33,7 @@ let server = null;
 let nextScanTimer = null;
 let telegramPollTimer = null;
 let gmailMonitor = null;
+let mailSpoolMonitor = null;
 let gmailIngestQueue = Promise.resolve();
 
 const RELEASE_NOTICE_ID = "2026-07-11-simple-fresh-sorting";
@@ -103,6 +105,7 @@ function healthPayload() {
       ])
     ),
     gmail: publicGmailHealth(config, state, gmailMonitor?.connected),
+    mailSpool: publicMailSpoolHealth(config, state),
     coreSourcesDown: coreSourcesDown(state),
     scanSchedule: scanSchedulePayload(),
     nextScanAt: state.nextScanAt,
@@ -540,6 +543,33 @@ function startGmailMonitor() {
   return true;
 }
 
+function startMailSpoolMonitor() {
+  if (!config.mailSpoolEnabled) return false;
+  mailSpoolMonitor = new ListAmMailSpoolMonitor(config, state, {
+    onListings: async (items) => {
+      gmailIngestQueue = gmailIngestQueue
+        .catch((error) => console.error(`[mail-spool] previous ingest failed: ${error.message}`))
+        .then(() => addForwardedListings(items));
+      await gmailIngestQueue;
+    },
+    onStateChange: () => writeState(config, state),
+    onHealth: (result) => {
+      updateSourceHealth(state, [
+        {
+          source: "listam_email",
+          listings: Number(result.listings || 0),
+          skipped: 0,
+          blocked: false,
+          error: result.ok ? null : result.error || "mail spool unavailable",
+        },
+      ]);
+    },
+  });
+  mailSpoolMonitor.start();
+  console.log("[mail-spool] server-side List.am email receiver scheduled");
+  return true;
+}
+
 function telegramHooks() {
   return {
     scanNow: () => runScanCycle("telegram-command"),
@@ -829,9 +859,10 @@ async function start() {
   writeState(config, state);
 
   server = createServer();
-  await new Promise((resolve) => server.listen(config.port, "0.0.0.0", resolve));
-  console.log(`[http] listening on 0.0.0.0:${config.port}`);
+  await new Promise((resolve) => server.listen(config.port, config.host, resolve));
+  console.log(`[http] listening on ${config.host}:${config.port}`);
   startGmailMonitor();
+  startMailSpoolMonitor();
   setTimeout(() => maybeSendReleaseNotice().catch((error) => console.error(`[notice] release notice failed: ${error.message}`)), 1000);
 
   if (config.scanOnStart || Number(state.scanHealth?.blockedStreak || 0) > 0) {
@@ -846,6 +877,7 @@ async function shutdown(signal) {
   if (nextScanTimer) clearTimeout(nextScanTimer);
   if (telegramPollTimer) clearTimeout(telegramPollTimer);
   if (gmailMonitor) await gmailMonitor.stop();
+  if (mailSpoolMonitor) mailSpoolMonitor.stop();
   if (server) {
     await new Promise((resolve) => server.close(resolve));
   }

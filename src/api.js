@@ -2,6 +2,7 @@ const { compareListingActivity, listingFreshnessTimestamp } = require("./listing
 const { priceDropPercent, visibleListings } = require("./listingStore");
 const { mergedSourceEntries } = require("./sourceHealth");
 const { isGmailConfigured } = require("./gmail");
+const { isMailSpoolConfigured } = require("./mailSpool");
 const { localizeDescription } = require("./localize");
 const { unique } = require("./utils");
 
@@ -66,7 +67,7 @@ function publicListingView(item) {
     changeDetectedAt: item.changeDetectedAt || null,
     discoveredAt: item.discoveredAt || null,
     url: item.url,
-    description: shortDescription(item),
+    description: item.detailsPending ? null : shortDescription(item),
     sourceLabel: item.sourceLabel || (/list\.am/i.test(String(item.url || "")) ? "List.am" : ""),
     alsoSources: (item.alsoSources || []).map((entry) => entry.label),
     whyGood: item.whyGood || [],
@@ -74,6 +75,8 @@ function publicListingView(item) {
     priceDropPercent: priceDropPercent(item),
     contactName: item.contactName || null,
     contactPhone: item.contactPhone || null,
+    detailsPending: Boolean(item.detailsPending),
+    sourceFilterHints: item.detailsPending ? item.sourceFilterHints || {} : {},
   };
 }
 
@@ -181,7 +184,18 @@ function listingsApiPayload(state, config, query = {}, now = new Date()) {
     hasMore: offset + page.length < filtered.length,
     locations: unique(visible.map((item) => item.location)).sort(),
     sources: mergedSourceEntries(state).map((entry) => {
-      const gmailSetupRequired = entry.source === "listam" && config.gmailImapEnabled && !isGmailConfigured(config);
+      const pushConfigured = isGmailConfigured(config) || isMailSpoolConfigured(config);
+      const gmailSetupRequired = entry.source === "listam" && config.gmailImapEnabled && !pushConfigured;
+      const mailSpoolSetupRequired = entry.source === "listam"
+        && isMailSpoolConfigured(config)
+        && !config.mailSpoolForwardingReady;
+      const mailSpoolStatus = entry.source === "listam" && isMailSpoolConfigured(config)
+        ? config.mailSpoolForwardingReady
+          ? "уведомления подключены"
+          : Number(state.mailSpool?.totalMessages || 0) > 0
+            ? "письмо обработано; автодоставка настраивается"
+          : "сервер готов принимать уведомления"
+        : null;
       return {
         label: entry.label,
         listings: entry.listings,
@@ -190,8 +204,8 @@ function listingsApiPayload(state, config, query = {}, now = new Date()) {
         lastScanListings: entry.lastScanListings ?? entry.listings,
         lastSuccessAt: entry.lastSuccessAt || null,
         stale: Boolean(entry.stale),
-        ok: !gmailSetupRequired && !entry.degraded && !entry.blocked && !entry.lastError,
-        statusText: gmailSetupRequired ? "нужно завершить подключение Gmail" : null,
+        ok: !gmailSetupRequired && !mailSpoolSetupRequired && !entry.degraded && !entry.blocked && !entry.lastError,
+        statusText: gmailSetupRequired ? "нужно завершить подключение Gmail" : mailSpoolStatus,
       };
     }),
     listings: page.map(publicListingView),

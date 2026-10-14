@@ -1,0 +1,36 @@
+[Unit]
+Description=Armenia real-estate Telegram bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=listam-bot
+Group=listam-bot
+WorkingDirectory=/opt/listam-bot/current
+Environment=NODE_ENV=production
+Environment=DATA_DIR=/var/lib/listam-bot
+Environment=PORT=10000
+EnvironmentFile=/etc/listam-bot.env
+ExecStart=/usr/local/bin/node src/app.js
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGTERM
+UMask=0077
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+ReadWritePaths=/var/lib/listam-bot
+MemoryMax=1200M
+TasksMax=256
+
+[Install]
+WantedBy=multi-user.target

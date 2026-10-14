@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+health_url="${LISTAM_BOT_HEALTH_URL:-http://127.0.0.1:10000/health}"
+
+healthy() {
+  curl --fail --silent --show-error --max-time 10 "$health_url" | grep -q '"ok": true'
+}
+
+if healthy; then
+  exit 0
+fi
+
+logger -t listam-bot-healthcheck "health endpoint failed; restarting listam-bot"
+systemctl restart listam-bot
+sleep 5
+healthy

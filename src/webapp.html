@@ -451,7 +451,7 @@
     saveFavs();
   }
 
-  function money(v) { return "$" + Number(v || 0).toLocaleString("en-US"); }
+  function money(v) { return Number(v) > 0 ? "$" + Number(v).toLocaleString("en-US") : "Цена на сайте"; }
   function countText(value) {
     var number = Number(value || 0);
     var mod10 = number % 10;
@@ -484,6 +484,20 @@
   function matches(item) {
     if (state.favOnly && !favs.has(item.id)) return false;
     if (state.kind && item.kindKey !== state.kind) return false;
+    if (item.detailsPending) {
+      var hints = item.sourceFilterHints || {};
+      if (state.minPrice && !(Number(hints.minPriceUsd) >= state.minPrice)) return false;
+      if (state.maxPrice && !(Number(hints.maxPriceUsd) > 0 && Number(hints.maxPriceUsd) <= state.maxPrice)) return false;
+      if (state.minArea && !(Number(hints.minAreaSqm) >= state.minArea)) return false;
+      if (state.maxArea && !(Number(hints.maxAreaSqm) > 0 && Number(hints.maxAreaSqm) <= state.maxArea)) return false;
+      if (state.minRooms || state.maxDistance || state.minLand || state.location || state.condition || state.elevator) return false;
+      if (state.withPhoto && !item.imageUrl) return false;
+      if (state.query) {
+        var pendingHay = ((item.kind || "") + " " + (item.sourceLabel || "") + " list.am").toLowerCase();
+        if (pendingHay.indexOf(state.query) === -1) return false;
+      }
+      return true;
+    }
     if (state.minPrice && Number(item.priceUsd || 0) < state.minPrice) return false;
     if (state.maxPrice && Number(item.priceUsd || 0) > state.maxPrice) return false;
     if (state.minArea && !(Number(item.areaSqm) >= state.minArea)) return false;
@@ -548,7 +562,7 @@
       item.landSqm ? "участок " + item.landSqm + " м²" : null,
     ].filter(Boolean).join(" · ");
     var metaBits = [
-      item.location || "район не распознан",
+      item.location || (item.detailsPending ? null : "район не распознан"),
       item.minutesToCenter != null ? item.minutesToCenter + " мин до центра" : null,
       conditionLabel(item.condition),
       item.elevator === true ? "лифт" : null,
@@ -575,14 +589,17 @@
     var isFav = favs.has(item.id);
     var favBtn = '<button class="fav' + (isFav ? " on" : "") + '" data-fav-id="' + esc(item.id) + '" aria-label="В избранное">' + (isFav ? "♥" : "♡") + "</button>";
     var dropBadge = item.priceDropPercent ? '<span class="drop">↓ ' + item.priceDropPercent + "%</span>" : "";
+    var priceText = item.priceUsd ? money(item.priceUsd) : (item.priceLabel || "Цена на List.am");
+    var pendingText = item.detailsPending ? '<div class="desc">Цена, площадь и адрес откроются на List.am.</div>' : "";
     return '<a class="card" href="' + esc(item.url) + '" target="_blank" rel="noopener">'
       + favBtn
       + photo
-      + '<div class="row1"><span class="price">' + esc(item.kind) + " · " + money(item.priceUsd) + dropBadge + (photo ? "" : freshBadge) + "</span>"
+      + '<div class="row1"><span class="price">' + esc(item.kind) + " · " + esc(priceText) + dropBadge + (photo ? "" : freshBadge) + "</span>"
       + (item.pricePerSqm ? '<span class="sqm">' + money(item.pricePerSqm) + "/м²</span>" : "")
       + "</div>"
       + (title ? '<div class="row2">' + esc(title) + "</div>" : "")
       + (item.description ? '<div class="desc">' + esc(item.description) + "</div>" : "")
+      + pendingText
       + contactHtml(item)
       + '<div class="row3">' + metaBits.map(function (b) { return "<span>" + esc(b) + "</span>"; }).join("") + "</div>"
       + (item.whyGood && item.whyGood.length >= 2 ? '<div class="why">' + esc("Почему интересно: " + item.whyGood.join("; ")) + "</div>" : "")
@@ -672,7 +689,7 @@
     $("sources").innerHTML = meta.sources.map(function (s) {
       var catalog = s.catalogListings == null ? s.listings : s.catalogListings;
       var tail = s.ok
-        ? ' <span class="cnt">· ' + countText(catalog) + "</span>"
+        ? ' <span class="cnt">· ' + countText(catalog) + (s.statusText ? " · " + esc(s.statusText) : "") + "</span>"
         : ' <span class="cnt">· ' + countText(catalog) + " · " + esc(s.statusText || "обновление задержано") + "</span>";
       return '<span class="src' + (s.ok ? "" : " warn") + '">' + (s.ok ? "✅" : "⏳") + " <b>" + esc(s.label) + "</b>" + tail + "</span>";
     }).join("");
