@@ -89,8 +89,8 @@
   },
   "config": {
     "autoStart": false,
-    "logDir": "/Users/hrach/Downloads/Дом/.claude-flow/logs",
-    "stateFile": "/Users/hrach/Downloads/Дом/.claude-flow/daemon-state.json",
+    "logDir": "/Users/user/Downloads/Дом/.claude-flow/logs",
+    "stateFile": "/Users/user/Downloads/Дом/.claude-flow/daemon-state.json",
     "maxConcurrent": 2,
     "workerTimeoutMs": 960000,
     "resourceThresholds": {

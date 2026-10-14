@@ -6,11 +6,11 @@
   <string>com.listam.relay</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/hrach/.local/bin/node</string>
-    <string>/Users/hrach/Downloads/Дом/scripts/listam_relay.js</string>
+    <string>/Users/user/.local/bin/node</string>
+    <string>/Users/user/Downloads/Дом/scripts/listam_relay.js</string>
   </array>
   <key>WorkingDirectory</key>
-  <string>/Users/hrach/Downloads/Дом</string>
+  <string>/Users/user/Downloads/Дом</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>RELAY_PAGES_PER_CATEGORY</key>
@@ -21,8 +21,8 @@
   <key>RunAtLoad</key>
   <false/>
   <key>StandardOutPath</key>
-  <string>/Users/hrach/Library/Logs/listam-relay.log</string>
+  <string>/Users/user/Library/Logs/listam-relay.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/hrach/Library/Logs/listam-relay.log</string>
+  <string>/Users/user/Library/Logs/listam-relay.log</string>
 </dict>
 </plist>
