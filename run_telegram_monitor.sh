@@ -2,8 +2,8 @@
 set -eu
 
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-NODE="/Users/hrach/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node"
-NODE_MODULES="/Users/hrach/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules"
+NODE="${HOME}/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node"
+NODE_MODULES="${HOME}/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules"
 
 if [ ! -x "$NODE" ]; then
   echo "Bundled Node.js was not found at: $NODE" >&2

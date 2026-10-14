@@ -858,12 +858,12 @@ async function main() {
   assert.equal(fbListing.condition, "ready");
   assert.equal(fbListing.contactPhone, "+374 91 234567", "phone must be parsed from the post");
   // Name comes from the Telegram forward header when present.
-  const fbWithName = parseForwardedListing(fbPost, config, { fromId: 101, messageId: 7, contactName: "Армен Петросян" });
-  assert.equal(fbWithName.contactName, "Армен Петросян");
-  assert.match(telegramTest.listingLine(fbWithName), /Контакт: <a href="tel:\+37491234567">Армен Петросян, \+374 91 234567<\/a>/);
+  const fbWithName = parseForwardedListing(fbPost, config, { fromId: 101, messageId: 7, contactName: "Контакт Альфа" });
+  assert.equal(fbWithName.contactName, "Контакт Альфа");
+  assert.match(telegramTest.listingLine(fbWithName), /Контакт: <a href="tel:\+37491234567">Контакт Альфа, \+374 91 234567<\/a>/);
   // Name from a labelled line in the text when no forward header.
-  const labelled = parseForwardedListing("Квартира Аван, 70 кв.м, $90000. Контакт: Гагик, 091 445566", config, { fromId: 101, messageId: 8 });
-  assert.equal(labelled.contactName, "Гагик");
+  const labelled = parseForwardedListing("Квартира Аван, 70 кв.м, $90000. Контакт: Контакт Бета, 091 445566", config, { fromId: 101, messageId: 8 });
+  assert.equal(labelled.contactName, "Контакт Бета");
   assert.equal(labelled.contactPhone, "+374 91 445566");
   const amdPost = "Дом Зовуни, 4 комнаты, 140 кв.м, участок. 46 800 000 драм. Отличное состояние.";
   const amdListing = parseForwardedListing(amdPost, config, { fromId: 101, messageId: 6 });
@@ -883,11 +883,11 @@ async function main() {
   const added = [];
   const fwdUpdate = update(fbPost, 101);
   fwdUpdate.message.forward_date = 1;
-  fwdUpdate.message.forward_from = { first_name: "Сурен", last_name: "Акопян" };
+  fwdUpdate.message.forward_from = { first_name: "Контакт Гамма", last_name: "Контакт Дельта" };
   await handleTelegramUpdate(config, state, fwdUpdate, { addListings: (items) => { added.push(...items); return true; } });
   assert.equal(added.length, 1, "forwarded post must be handed to addListings");
   assert.equal(added[0].source, "facebook");
-  assert.equal(added[0].contactName, "Сурен Акопян", "contact name taken from forward header");
+  assert.equal(added[0].contactName, "Контакт Гамма Контакт Дельта", "contact name taken from forward header");
   assert.equal(added[0].contactPhone, "+374 91 234567");
   assert.match(fake.messages.at(-1).text, /Добавил объявление в каталог/);
   assert.match(fake.messages.at(-1).text, /Контакт: <a href="tel:/);
